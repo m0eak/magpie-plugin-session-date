@@ -48,7 +48,7 @@ function filterChat(body) {
         changed = true;
       }
     } else if (Array.isArray(message.content)) {
-      const filtered = filterBlockArray(message.content, new Set(['text', 'input_text']));
+      const filtered = filterBlockArray(message.content, new Set(['text']));
       if (filtered.changed) {
         nextMessage = { ...message, content: filtered.value };
         removedLines += filtered.removedLines;
@@ -136,6 +136,8 @@ function filterGeminiParts(parts) {
     // recognized generation metadata, while multimodal/tool parts carry other
     // payload keys. Fail open on ambiguous combinations.
     if (!isRecord(part) || typeof part.text !== 'string') continue;
+    if (part.thought !== undefined && typeof part.thought !== 'boolean') continue;
+    if (part.thoughtSignature !== undefined && typeof part.thoughtSignature !== 'string') continue;
     const payloadKeys = Object.keys(part).filter((key) => key !== 'text' && key !== 'thought' && key !== 'thoughtSignature');
     if (payloadKeys.length > 0) continue;
     const filtered = filterTextValue(part.text);
@@ -150,12 +152,6 @@ function filterGeminiParts(parts) {
 function filterGemini(body) {
   if (!isRecord(body)) return { body, removedLines: 0 };
   const system = body.systemInstruction;
-  if (typeof system === 'string') {
-    const filtered = filterTextValue(system);
-    return filtered.changed
-      ? { body: { ...body, systemInstruction: filtered.value }, removedLines: filtered.removedLines }
-      : { body, removedLines: 0 };
-  }
   if (!isRecord(system)) return { body, removedLines: 0 };
 
   const parts = filterGeminiParts(system.parts);

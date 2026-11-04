@@ -12,7 +12,7 @@
 
 - `src/matcher.mjs`：`stripSessionDates(text) -> { text, removedLines }`
 - `src/protocols.mjs`：`filterRequest(body, protocol) -> { body, removedLines, supported }`
-- 支持协议：chat、responses、anthropic、gemini。只检查 system/developer 或协议顶层系统指令位置；content blocks 需要有协议规定的 text discriminator（Gemini Part 按 `text` 成员识别，并对混合未知字段 fail-open）。未知协议及 malformed 内容 fail-open；不扫描其他对象的任意 `text` 字段。
+- 支持协议：chat、responses、anthropic、gemini。Chat 文本块使用 `type: text`，Responses 输入文本块使用 `type: input_text`。只检查 system/developer 或协议顶层系统指令位置；Gemini 只检查对象形状 `systemInstruction.parts[].text`，并对错误元数据类型或混合未知 payload fail-open。未知协议及 malformed 内容 fail-open；不扫描其他对象的任意 `text` 字段。
 
 ## 本地测试
 

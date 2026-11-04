@@ -49,7 +49,9 @@ function isValidCalendarLine(line) {
   const [, weekday, monthName, dayText, yearText] = match;
   const year = Number(yearText), month = MONTHS.get(monthName), day = Number(dayText);
   if (year < 1 || day < 1 || day > 31) return false;
-  const date = new Date(Date.UTC(year, month, day));
+  const date = new Date(0);
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCFullYear(year, month, day);
   return date.getUTCFullYear() === year && date.getUTCMonth() === month && date.getUTCDate() === day && WEEKDAYS[date.getUTCDay()] === weekday;
 }
 
@@ -138,14 +140,16 @@ export function stripSessionDates(text) {
     const toolsStart = text.indexOf(TOOLS_OPEN, cursor);
     if (toolsStart === -1) break;
     if (protectedLines.has(lineStartAt(text, toolsStart))) {
+      output += text.slice(cursor, toolsStart + TOOLS_OPEN.length);
       cursor = toolsStart + TOOLS_OPEN.length;
       continue;
     }
     const contentStart = toolsStart + TOOLS_OPEN.length;
     const toolsClose = text.indexOf('</tools>', contentStart);
-    if (toolsClose === -1 || protectedLines.has(lineStartAt(text, toolsStart))) {
-      cursor = contentStart;
-      continue;
+    if (toolsClose === -1) {
+      output += text.slice(cursor);
+      cursor = text.length;
+      break;
     }
     const outerOpen = text.lastIndexOf('<tools', toolsStart - 1);
     const outerClose = text.lastIndexOf('</tools>', toolsStart - 1);
@@ -153,6 +157,7 @@ export function stripSessionDates(text) {
       const outerTagEnd = text.indexOf('>', outerOpen);
       const outerTag = text.slice(outerOpen, outerTagEnd + 1);
       if (outerTag !== TOOLS_OPEN) {
+        output += text.slice(cursor, toolsClose + '</tools>'.length);
         cursor = toolsClose + '</tools>'.length;
         continue;
       }
@@ -165,8 +170,8 @@ export function stripSessionDates(text) {
         replacements.push(...stripInTool(text, tool, protectedLines));
       }
     }
-    if (replacements.length) {
-      output += text.slice(cursor, toolsStart);
+    output += text.slice(cursor, toolsStart);
+    if (replacements.length > 0) {
       let inner = toolsStart;
       for (const replacement of replacements) {
         output += text.slice(inner, replacement.start) + replacement.text;
@@ -174,6 +179,8 @@ export function stripSessionDates(text) {
         removedLines += replacement.removedLines;
       }
       output += text.slice(inner, toolsClose + '</tools>'.length);
+    } else {
+      output += text.slice(toolsStart, toolsClose + '</tools>'.length);
     }
     cursor = toolsClose + '</tools>'.length;
   }

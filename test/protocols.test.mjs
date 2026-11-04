@@ -40,15 +40,25 @@ test('filters only explicit chat text content blocks and preserves metadata', ()
   const responsesOnly = inputTextBlock(target);
   const body = { messages: [{ role: 'system', content: [cache, ambiguous, image, responsesOnly] }] };
   const result = filterRequest(body, 'chat');
-  assert.equal(result.removedLines, 2);
+  assert.equal(result.removedLines, 1);
   assert.equal(result.body.messages[0].content[0].text, clean);
   assert.deepEqual(result.body.messages[0].content[0].cache_control, { type: 'ephemeral' });
   assert.equal(result.body.messages[0].content[0].vendor, 9);
   assert.equal(result.body.messages[0].content[1], ambiguous);
   assert.equal(result.body.messages[0].content[2], image);
-  assert.notEqual(result.body.messages[0].content[3], responsesOnly);
-  assert.equal(result.body.messages[0].content[3].type, 'input_text');
-  assert.equal(result.body.messages[0].content[3].text, clean);
+  assert.equal(result.body.messages[0].content[3], responsesOnly);
+});
+
+test('treats Chat input_text as an unsupported block while retaining source identity', () => {
+  const block = inputTextBlock(target);
+  const message = { role: 'system', content: [block] };
+  const body = { messages: [message] };
+  const result = filterRequest(body, 'chat');
+  assert.equal(result.supported, true);
+  assert.equal(result.removedLines, 0);
+  assert.equal(result.body, body);
+  assert.equal(result.body.messages[0], message);
+  assert.equal(result.body.messages[0].content[0], block);
 });
 
 test('leaves malformed chat blocks fail-open while processing a valid sibling', () => {
@@ -131,6 +141,36 @@ test('filters Gemini systemInstruction string and legal text parts only', () => 
   assert.deepEqual(result.body.systemInstruction.vendorMeta, { keep: true });
   assert.equal(result.body.contents, body.contents);
   assert.equal(result.body.generationConfig, body.generationConfig);
+});
+
+test('leaves Gemini systemInstruction string and unknown shapes unchanged', () => {
+  const shapes = [target, null, 7, [], { parts: {} }, { role: 'system', text: target }];
+  for (const systemInstruction of shapes) {
+    const body = { systemInstruction };
+    const result = filterRequest(body, 'gemini');
+    assert.equal(result.supported, true);
+    assert.equal(result.removedLines, 0);
+    assert.equal(result.body, body);
+    assert.equal(result.body.systemInstruction, systemInstruction);
+  }
+});
+
+test('leaves Gemini text parts with malformed known metadata untouched', () => {
+  const malformedParts = [
+    { text: target, thought: 'not-a-boolean' },
+    { text: target, thoughtSignature: [] },
+    { text: target, thought: null },
+    { text: target, thoughtSignature: 12 },
+    { text: target, thought: false, extraPayload: { bytes: [1] } },
+  ];
+  for (const part of malformedParts) {
+    const body = { systemInstruction: { parts: [part] } };
+    const result = filterRequest(body, 'gemini');
+    assert.equal(result.supported, true);
+    assert.equal(result.removedLines, 0);
+    assert.equal(result.body, body);
+    assert.equal(result.body.systemInstruction.parts[0], part);
+  }
 });
 
 test('returns the original body reference for known protocol requests without a match', () => {

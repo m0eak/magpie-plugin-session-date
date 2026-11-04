@@ -43,6 +43,61 @@ test('keeps identical date text outside the exact tools wrapper', () => {
   });
 });
 
+test('preserves skipped wrappers before a later matching wrapper exactly', () => {
+  const skipped = prompt(toolBlock('Other'));
+  const matched = prompt(toolBlock('Memory'));
+  const expectedMatch = prompt(toolBlock('Memory', cleanSession));
+  const input = `${skipped}\nordinary note\n${matched}`;
+  assert.deepEqual(stripSessionDates(input), {
+    text: `${skipped}\nordinary note\n${expectedMatch}`,
+    removedLines: 1,
+  });
+});
+
+test('preserves an unterminated wrapper after a matching wrapper exactly', () => {
+  const matched = prompt(toolBlock('Memory'));
+  const expectedMatch = prompt(toolBlock('Memory', cleanSession));
+  const malformedTail = '\n<tools description="The tools you can use below">broken';
+  assert.deepEqual(stripSessionDates(`${matched}${malformedTail}`), {
+    text: `${expectedMatch}${malformedTail}`,
+    removedLines: 1,
+  });
+});
+
+test('preserves skipped wrappers between two matching wrappers exactly', () => {
+  const first = prompt(toolBlock('Memory'));
+  const firstExpected = prompt(toolBlock('Memory', cleanSession));
+  const skipped = prompt(toolBlock('Other'));
+  const second = prompt(toolBlock('Credentials'));
+  const secondExpected = prompt(toolBlock('Credentials', cleanSession));
+  const input = `${first}\n${skipped}\n${second}`;
+  assert.deepEqual(stripSessionDates(input), {
+    text: `${firstExpected}\n${skipped}\n${secondExpected}`,
+    removedLines: 2,
+  });
+});
+
+test('preserves multiple skipped wrappers and ordinary text before a match', () => {
+  const skippedA = prompt(toolBlock('Other'));
+  const skippedB = prompt(toolBlock('MemoryManager'));
+  const skippedText = 'ordinary system instruction';
+  const matched = prompt(toolBlock('Credentials'));
+  const expectedMatch = prompt(toolBlock('Credentials', cleanSession));
+  const input = `${skippedA}\n${skippedText}\n${skippedB}\n${matched}`;
+  assert.deepEqual(stripSessionDates(input), {
+    text: `${skippedA}\n${skippedText}\n${skippedB}\n${expectedMatch}`,
+    removedLines: 1,
+  });
+});
+
+test('returns a zero-match input byte-for-byte unchanged after multiple skipped candidates', () => {
+  const skippedA = prompt(toolBlock('Other'));
+  const malformed = '<tools description="The tools you can use below">open without close';
+  const skippedB = prompt(toolBlock('MemoryManager'));
+  const input = `${skippedA}\n${malformed}\n${skippedB}`;
+  assert.deepEqual(stripSessionDates(input), { text: input, removedLines: 0 });
+});
+
 test('keeps a fake target tree nested beneath a non-target tool untouched', () => {
   const fake = `<tool name="Other">\n<tool name="Memory">\n<tool.instructions><session_context>\n${dateLine}\n</session_context></tool.instructions>\n</tool>\n</tool>`;
   const input = prompt(fake);
@@ -136,6 +191,25 @@ test('passes through non-string inputs without scanning them', () => {
     const result = stripSessionDates(value);
     assert.equal(result.text, value);
     assert.equal(result.removedLines, 0);
+  }
+});
+
+test('supports valid early years without Date.UTC year remapping', () => {
+  const cases = [
+    ['Session date: Monday, January 1, 0001', 1],
+    ['Session date: Saturday, March 15, 0042', 1],
+    ['Session date: Thursday, December 31, 0099', 1],
+    ['Session date: Sunday, February 29, 0004', 1],
+    ['Session date: Wednesday, November 4, 2026', 1],
+    ['Session date: Tuesday, February 29, 0004', 0],
+    ['Session date: Monday, February 29, 0001', 0],
+    ['Session date: Monday, February 30, 0042', 0],
+  ];
+  for (const [line, removedLines] of cases) {
+    const input = prompt(toolBlock('Memory', `<session_context>\n${line}\n</session_context>`));
+    const result = stripSessionDates(input);
+    assert.equal(result.removedLines, removedLines, line);
+    assert.equal(result.text.includes(line), removedLines === 0, line);
   }
 });
 

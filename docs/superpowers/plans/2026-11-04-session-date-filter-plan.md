@@ -27,7 +27,7 @@ stripSessionDates(text) // -> { text: string, removedLines: number }
 filterRequest(body, protocol) // -> { body, removedLines: number, supported: boolean }
 ```
 
-`protocol` 只识别 `chat`、`responses`、`anthropic`、`gemini`。只处理 chat `messages[]` 中 system/developer 的字符串 content 与 `type=text` / `type=input_text` blocks；Responses `instructions` 和 type=message 且 role=system/developer 的 `input[]` 字符串 / `type=input_text` blocks；Anthropic 顶层 `system` 字符串 / `type=text` blocks；Gemini `systemInstruction` 字符串或 Gemini Part 的 `text`（允许 thought / thoughtSignature 元数据；混有其他未知字段则 fail-open）。未知字段和 malformed block 保留，不抛给网关。按协议字段识别文本块，不扫描任意对象里的 `text` 字段；Gemini Part 按其官方 `text` 文本成员加已知文本元数据识别。wrapper 跨 block 则不拼接、不匹配。
+`protocol` 只识别 `chat`、`responses`、`anthropic`、`gemini`。只处理 chat `messages[]` 中 system/developer 的字符串 content 与 `type=text` blocks；Responses `instructions` 和 type=message 且 role=system/developer 的 `input[]` 字符串 / `type=input_text` blocks；Anthropic 顶层 `system` 字符串 / `type=text` blocks；Gemini 仅处理对象形式 `systemInstruction.parts[]` 中合法 Part 的 `text`，允许 `thought` 缺省/boolean、`thoughtSignature` 缺省/string；混入其他未知或非文本 payload 字段、或已知元数据类型错误时 fail-open。未知字段和 malformed block 保留，不抛给网关。按协议字段识别文本块，不扫描任意对象里的 `text` 字段。wrapper 跨 block 则不拼接、不匹配。
 
 **验收命令**
 
