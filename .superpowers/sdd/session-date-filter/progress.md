@@ -1,7 +1,7 @@
 # Session Date Filter — SDD 阶段账本
 
 ## Task 1 — 独立插件基础与纯函数过滤器
-- 状态：修复轮 1 完成，待独立复审
+- 状态：修复轮 3 已实现并通过验证，待定向复审
 - 分支：`feature/session-date-filter`
 - 初始目标路径检查：不存在；因此创建新工程
 - 开发工具：Node、Bun、Git 均已存在（Node v22.23.0、Bun 1.3.10、Git 2.43.0）；未安装依赖/软件
@@ -16,6 +16,9 @@
 - 修复轮 2 TDD：在旧实现上先运行 matcher 专项测试，退出码 1（33 tests / 29 pass / 4 fail），复现未闭合外层内嵌目标、完整非目标外层内嵌多个目标、malformed 前后边界及 nested/unmatched close。日志 `task-1-fix-2-red.log`。
 - 修复轮 2 Green：定向 matcher+protocol 50/50、全量 npm 50/50；日志 `task-1-fix-2-green.log` / `task-1-fix-2-full-test.log`。
 - 修复轮 2 策略：先扫描并验证整个文本的顶层 `<tools>` 标签结构；任何嵌套/未配对/非完整 closing 标签使整段 fail-open；平级完整合法 wrapper 逐个过滤。残余 tradeoff：malformed 结构会连带跳过其他平级合法 wrapper，以确保无意外删改。
-- 当前：修复轮 2 实现及文档完成，待一笔本地提交、生成定向 review patch，并等待独立复审；不宣称 review clean。
+- 修复轮 3 TDD：新增 blockquote/fenced-code 伪 closing 的精确原文断言；旧实现 `node --test test/matcher.test.mjs` 退出码 1，35 tests / 33 pass / 2 fail。日志 `task-1-fix-3-red.log`。
+- 修复轮 3 Green：matcher 35/35、全量 npm suite 52/52；日志 `task-1-fix-3-green.log` / `task-1-fix-3-full-test.log`。closing 标签保护行现在 fail-open，不会伪关闭 `<tools>` 外层。
+- 当前：修复轮 3 改动、文档与日志已准备，待本地提交和生成定向 review patch；等待主代理复审，不宣称 clean。
+
 
 - 未执行：Task 2/3、hook/stats/service/UI/manifest、部署/联网/SSH/生产数据访问。

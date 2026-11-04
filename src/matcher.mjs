@@ -164,7 +164,8 @@ function scanTopLevelTools(text) {
       continue;
     }
 
-    if (closeAt === -1 || text.slice(closeAt, closeAt + '</tools>'.length) !== '</tools>' || !open) {
+    if (closeAt === -1 || protectedLines.has(lineStartAt(text, closeAt)) ||
+        text.slice(closeAt, closeAt + '</tools>'.length) !== '</tools>' || !open) {
       return { valid: false, regions: [] };
     }
     regions.push({ ...open, closeStart: closeAt, end: closeAt + '</tools>'.length });

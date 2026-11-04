@@ -54,6 +54,18 @@ test('preserves skipped wrappers before a later matching wrapper exactly', () =>
   });
 });
 
+test('fails open when a blockquote closing tag is the only outer tools close', () => {
+  const target = `<tools description="The tools you can use below">\n<tool name="Memory">\n<tool.instructions><session_context>\n${dateLine}\n</session_context></tool.instructions>\n</tool>`;
+  const input = `${target}\n> </tools>`;
+  assert.deepEqual(stripSessionDates(input), { text: input, removedLines: 0 });
+});
+
+test('fails open when a fenced closing tag is the only outer tools close', () => {
+  const target = `<tools description="The tools you can use below">\n<tool name="Memory">\n<tool.instructions><session_context>\n${dateLine}\n</session_context></tool.instructions>\n</tool>`;
+  const input = `${target}\n\`\`\`xml\n</tools>\n\`\`\``;
+  assert.deepEqual(stripSessionDates(input), { text: input, removedLines: 0 });
+});
+
 test('fails open for a target wrapper nested inside an unterminated outer tools tag', () => {
   const nestedTarget = prompt(toolBlock('Memory'));
   const input = `<tools description="The tools you can use below">broken\n${nestedTarget}`;
