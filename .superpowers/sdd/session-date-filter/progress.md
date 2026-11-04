@@ -13,5 +13,9 @@
 - 修复轮 1 TDD：先新增 C1/I1/I2/I3/M1 回归测试；`node --test test/matcher.test.mjs test/protocols.test.mjs` 在修复前退出码 1，44 tests / 37 pass / 7 fail。原始 stdout+stderr 合并日志：`task-1-fix-1-red.log`。不改写初次 Task 1 缺少原始日志的历史事实。
 - 修复轮 1 Green：定向 suite 45/45 通过，日志：`task-1-fix-1-green.log`。
 - 处理：C1 逐个原样追加扫描区间（包含匹配前跳过 wrapper、未闭合尾部）；Chat 只接收 text discriminator，Responses 保留 input_text；Gemini 不处理顶层字符串，只处理 systemInstruction.parts 中 text，且校验 thought boolean / thoughtSignature string；M1 用 setUTCFullYear 兼容 0001–0099 并保留 weekday/month/day 校验。
-- 当前：测试通过；修复已在本地工作树，尚待最终全量验证、追加报告、一次本地提交和生成 fix review patch。
+- 修复轮 2 TDD：在旧实现上先运行 matcher 专项测试，退出码 1（33 tests / 29 pass / 4 fail），复现未闭合外层内嵌目标、完整非目标外层内嵌多个目标、malformed 前后边界及 nested/unmatched close。日志 `task-1-fix-2-red.log`。
+- 修复轮 2 Green：定向 matcher+protocol 50/50、全量 npm 50/50；日志 `task-1-fix-2-green.log` / `task-1-fix-2-full-test.log`。
+- 修复轮 2 策略：先扫描并验证整个文本的顶层 `<tools>` 标签结构；任何嵌套/未配对/非完整 closing 标签使整段 fail-open；平级完整合法 wrapper 逐个过滤。残余 tradeoff：malformed 结构会连带跳过其他平级合法 wrapper，以确保无意外删改。
+- 当前：修复轮 2 实现及文档完成，待一笔本地提交、生成定向 review patch，并等待独立复审；不宣称 review clean。
+
 - 未执行：Task 2/3、hook/stats/service/UI/manifest、部署/联网/SSH/生产数据访问。

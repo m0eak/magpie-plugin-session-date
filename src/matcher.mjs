@@ -131,38 +131,69 @@ function findTopLevelTools(text, start, end) {
   return stack.length === 0 ? tools : null;
 }
 
+function nextToolsTag(text, marker, cursor) {
+  let index = text.indexOf(marker, cursor);
+  while (index !== -1) {
+    const boundary = text[index + marker.length];
+    if (boundary === '>' || boundary === ' ' || boundary === '\t' || boundary === '\r' || boundary === '\n') return index;
+    index = text.indexOf(marker, index + marker.length);
+  }
+  return -1;
+}
+
+function scanTopLevelTools(text) {
+  const regions = [];
+  const protectedLines = protectedMarkdownLines(text);
+  let cursor = 0;
+  let open = null;
+
+  while (cursor < text.length) {
+    const openAt = nextToolsTag(text, '<tools', cursor);
+    const closeAt = nextToolsTag(text, '</tools', cursor);
+    if (openAt === -1 && closeAt === -1) break;
+
+    if (openAt !== -1 && (closeAt === -1 || openAt < closeAt)) {
+      if (protectedLines.has(lineStartAt(text, openAt))) {
+        cursor = openAt + '<tools'.length;
+        continue;
+      }
+      const tagEnd = text.indexOf('>', openAt + '<tools'.length);
+      if (tagEnd === -1 || open) return { valid: false, regions: [] };
+      open = { start: openAt, contentStart: tagEnd + 1, opening: text.slice(openAt, tagEnd + 1) };
+      cursor = tagEnd + 1;
+      continue;
+    }
+
+    if (closeAt === -1 || text.slice(closeAt, closeAt + '</tools>'.length) !== '</tools>' || !open) {
+      return { valid: false, regions: [] };
+    }
+    regions.push({ ...open, closeStart: closeAt, end: closeAt + '</tools>'.length });
+    open = null;
+    cursor = closeAt + '</tools>'.length;
+  }
+
+  return open ? { valid: false, regions: [] } : { valid: true, regions };
+}
+
 /** Remove matched date lines only inside known LobeHub Memory/Credentials tool prompt wrappers. */
 export function stripSessionDates(text) {
   if (typeof text !== 'string') return { text, removedLines: 0 };
   const protectedLines = protectedMarkdownLines(text);
+  const scan = scanTopLevelTools(text);
+  if (!scan.valid) return { text, removedLines: 0 };
+
   let output = '', removedLines = 0, cursor = 0;
-  while (cursor < text.length) {
-    const toolsStart = text.indexOf(TOOLS_OPEN, cursor);
-    if (toolsStart === -1) break;
-    if (protectedLines.has(lineStartAt(text, toolsStart))) {
-      output += text.slice(cursor, toolsStart + TOOLS_OPEN.length);
-      cursor = toolsStart + TOOLS_OPEN.length;
+  for (const region of scan.regions) {
+    output += text.slice(cursor, region.start);
+    const isTargetWrapper = region.opening === TOOLS_OPEN;
+    const isProtected = protectedLines.has(lineStartAt(text, region.start));
+    if (!isTargetWrapper || isProtected) {
+      output += text.slice(region.start, region.end);
+      cursor = region.end;
       continue;
     }
-    const contentStart = toolsStart + TOOLS_OPEN.length;
-    const toolsClose = text.indexOf('</tools>', contentStart);
-    if (toolsClose === -1) {
-      output += text.slice(cursor);
-      cursor = text.length;
-      break;
-    }
-    const outerOpen = text.lastIndexOf('<tools', toolsStart - 1);
-    const outerClose = text.lastIndexOf('</tools>', toolsStart - 1);
-    if (outerOpen > outerClose) {
-      const outerTagEnd = text.indexOf('>', outerOpen);
-      const outerTag = text.slice(outerOpen, outerTagEnd + 1);
-      if (outerTag !== TOOLS_OPEN) {
-        output += text.slice(cursor, toolsClose + '</tools>'.length);
-        cursor = toolsClose + '</tools>'.length;
-        continue;
-      }
-    }
-    const tools = findTopLevelTools(text, contentStart, toolsClose);
+
+    const tools = findTopLevelTools(text, region.contentStart, region.closeStart);
     const replacements = [];
     if (tools) {
       for (const tool of tools) {
@@ -170,21 +201,24 @@ export function stripSessionDates(text) {
         replacements.push(...stripInTool(text, tool, protectedLines));
       }
     }
-    output += text.slice(cursor, toolsStart);
-    if (replacements.length > 0) {
-      let inner = toolsStart;
-      for (const replacement of replacements) {
-        output += text.slice(inner, replacement.start) + replacement.text;
-        inner = replacement.end;
-        removedLines += replacement.removedLines;
-      }
-      output += text.slice(inner, toolsClose + '</tools>'.length);
-    } else {
-      output += text.slice(toolsStart, toolsClose + '</tools>'.length);
+
+    if (replacements.length === 0) {
+      output += text.slice(region.start, region.end);
+      cursor = region.end;
+      continue;
     }
-    cursor = toolsClose + '</tools>'.length;
+
+    let inner = region.start;
+    for (const replacement of replacements) {
+      output += text.slice(inner, replacement.start) + replacement.text;
+      inner = replacement.end;
+      removedLines += replacement.removedLines;
+    }
+    output += text.slice(inner, region.end);
+    cursor = region.end;
   }
-  if (!removedLines) return { text, removedLines: 0 };
+
+  if (removedLines === 0) return { text, removedLines: 0 };
   output += text.slice(cursor);
   return { text: output, removedLines };
 }

@@ -54,14 +54,58 @@ test('preserves skipped wrappers before a later matching wrapper exactly', () =>
   });
 });
 
+test('fails open for a target wrapper nested inside an unterminated outer tools tag', () => {
+  const nestedTarget = prompt(toolBlock('Memory'));
+  const input = `<tools description="The tools you can use below">broken\n${nestedTarget}`;
+  assert.deepEqual(stripSessionDates(input), { text: input, removedLines: 0 });
+});
+
+test('fails open for multiple target wrappers nested inside a complete non-target tools tag', () => {
+  const firstTarget = prompt(toolBlock('Memory'));
+  const secondTarget = prompt(toolBlock('Credentials'));
+  const input = `<tools description="wrong">\n${firstTarget}\n${secondTarget}\n</tools>`;
+  assert.deepEqual(stripSessionDates(input), { text: input, removedLines: 0 });
+});
+
+test('fails open on malformed tools regions before or after otherwise legal wrappers', () => {
+  const valid = prompt(toolBlock('Memory'));
+  const malformedOpen = '<tools description="The tools you can use below">broken';
+  const malformedOuter = `<tools description="The tools you can use below">\n${valid}`;
+  const malformedClose = '</tools> stray close';
+  const cases = [
+    `${malformedOpen}\n${valid}`,
+    `${valid}\n${malformedOpen}`,
+    `${valid}\n${malformedOuter}`,
+    `${malformedOuter}\n${valid}`,
+    `${valid}\n${malformedClose}\n${valid}`,
+  ];
+  for (const input of cases) {
+    assert.deepEqual(stripSessionDates(input), { text: input, removedLines: 0 });
+  }
+});
+
+test('fails open for nested closes and unmatched tools closing tags', () => {
+  const nestedTarget = prompt(toolBlock('Memory'));
+  const nested = `<tools description="wrong">\n${nestedTarget}\n</tools>`;
+  const extraNestedClose = `${nested}\n</tools>`;
+  const unmatchedClose = `</tools> stray close\n${nestedTarget}`;
+  for (const input of [nested, extraNestedClose, unmatchedClose]) {
+    assert.deepEqual(stripSessionDates(input), { text: input, removedLines: 0 });
+  }
+});
+
+test('filters multiple flat valid tools wrappers while preserving every wrapper boundary', () => {
+  const first = prompt(toolBlock('Memory'));
+  const second = prompt(toolBlock('Credentials'));
+  const expected = `${prompt(toolBlock('Memory', cleanSession))}\n${prompt(toolBlock('Credentials', cleanSession))}`;
+  assert.deepEqual(stripSessionDates(`${first}\n${second}`), { text: expected, removedLines: 2 });
+});
+
 test('preserves an unterminated wrapper after a matching wrapper exactly', () => {
   const matched = prompt(toolBlock('Memory'));
-  const expectedMatch = prompt(toolBlock('Memory', cleanSession));
   const malformedTail = '\n<tools description="The tools you can use below">broken';
-  assert.deepEqual(stripSessionDates(`${matched}${malformedTail}`), {
-    text: `${expectedMatch}${malformedTail}`,
-    removedLines: 1,
-  });
+  const input = `${matched}${malformedTail}`;
+  assert.deepEqual(stripSessionDates(input), { text: input, removedLines: 0 });
 });
 
 test('preserves skipped wrappers between two matching wrappers exactly', () => {
