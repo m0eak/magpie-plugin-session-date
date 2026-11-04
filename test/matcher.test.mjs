@@ -276,3 +276,49 @@ test('removes a dynamically different valid date without hard-coding one day', (
   assert.equal(result.removedLines, 1);
   assert.equal(result.text.includes(dynamic), false);
 });
+
+const protectedToolsSample = `\`\`\`xml\n<tools description="The tools you can use below">\n</tools>\n\`\`\``;
+const cleanMemoryWrapper = prompt(toolBlock('Memory', cleanSession));
+
+test('filters a complete wrapper before a protected blockquote close suffix', () => {
+  const input = `${prompt(toolBlock('Memory'))}\n> </tools>`;
+  assert.deepEqual(stripSessionDates(input), {
+    text: `${cleanMemoryWrapper}\n> </tools>`,
+    removedLines: 1,
+  });
+});
+
+test('filters a complete wrapper before a protected fenced close suffix', () => {
+  const input = `${prompt(toolBlock('Memory'))}\n\`\`\`xml\n</tools>\n\`\`\``;
+  assert.deepEqual(stripSessionDates(input), {
+    text: `${cleanMemoryWrapper}\n\`\`\`xml\n</tools>\n\`\`\``,
+    removedLines: 1,
+  });
+});
+
+test('ignores a protected close before a later complete wrapper', () => {
+  const prefix = '> </tools>\n\n';
+  const input = `${prefix}${prompt(toolBlock('Memory'))}`;
+  assert.deepEqual(stripSessionDates(input), {
+    text: `${prefix}${cleanMemoryWrapper}`,
+    removedLines: 1,
+  });
+});
+
+test('ignores protected opening and closing examples between flat wrappers', () => {
+  const first = prompt(toolBlock('Memory'));
+  const second = prompt(toolBlock('Credentials'));
+  const cleanSecond = prompt(toolBlock('Credentials', cleanSession));
+  const input = `${first}\n${protectedToolsSample}\n${second}`;
+  assert.deepEqual(stripSessionDates(input), {
+    text: `${cleanMemoryWrapper}\n${protectedToolsSample}\n${cleanSecond}`,
+    removedLines: 2,
+  });
+});
+
+test('ignores protected opening and closing examples while a real wrapper is active', () => {
+  const sessionWithExample = `<session_context>\n${dateLine}\n${protectedToolsSample}\n</session_context>`;
+  const input = prompt(toolBlock('Memory', sessionWithExample));
+  const expected = prompt(toolBlock('Memory', `<session_context>\n${protectedToolsSample}\n</session_context>`));
+  assert.deepEqual(stripSessionDates(input), { text: expected, removedLines: 1 });
+});

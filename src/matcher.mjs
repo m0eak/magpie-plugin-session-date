@@ -131,6 +131,14 @@ function findTopLevelTools(text, start, end) {
   return stack.length === 0 ? tools : null;
 }
 
+function nextUnprotectedToolsTag(text, marker, cursor, protectedLines) {
+  let index = nextToolsTag(text, marker, cursor);
+  while (index !== -1 && protectedLines.has(lineStartAt(text, index))) {
+    index = nextToolsTag(text, marker, index + marker.length);
+  }
+  return index;
+}
+
 function nextToolsTag(text, marker, cursor) {
   let index = text.indexOf(marker, cursor);
   while (index !== -1) {
@@ -148,15 +156,11 @@ function scanTopLevelTools(text) {
   let open = null;
 
   while (cursor < text.length) {
-    const openAt = nextToolsTag(text, '<tools', cursor);
-    const closeAt = nextToolsTag(text, '</tools', cursor);
+    const openAt = nextUnprotectedToolsTag(text, '<tools', cursor, protectedLines);
+    const closeAt = nextUnprotectedToolsTag(text, '</tools', cursor, protectedLines);
     if (openAt === -1 && closeAt === -1) break;
 
     if (openAt !== -1 && (closeAt === -1 || openAt < closeAt)) {
-      if (protectedLines.has(lineStartAt(text, openAt))) {
-        cursor = openAt + '<tools'.length;
-        continue;
-      }
       const tagEnd = text.indexOf('>', openAt + '<tools'.length);
       if (tagEnd === -1 || open) return { valid: false, regions: [] };
       open = { start: openAt, contentStart: tagEnd + 1, opening: text.slice(openAt, tagEnd + 1) };
@@ -164,8 +168,7 @@ function scanTopLevelTools(text) {
       continue;
     }
 
-    if (closeAt === -1 || protectedLines.has(lineStartAt(text, closeAt)) ||
-        text.slice(closeAt, closeAt + '</tools>'.length) !== '</tools>' || !open) {
+    if (closeAt === -1 || text.slice(closeAt, closeAt + '</tools>'.length) !== '</tools>' || !open) {
       return { valid: false, regions: [] };
     }
     regions.push({ ...open, closeStart: closeAt, end: closeAt + '</tools>'.length });
