@@ -1,0 +1,15 @@
+{
+  "name": "lobehub-plugin-session-date-filter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "WIP standalone plugin: narrowly remove LobeHub Memory/Credentials session-date lines.",
+  "files": ["src/", "README.md"],
+  "scripts": {
+    "test": "node --test"
+  },
+  "exports": {
+    "./matcher": "./src/matcher.mjs",
+    "./protocols": "./src/protocols.mjs"
+  }
+}
