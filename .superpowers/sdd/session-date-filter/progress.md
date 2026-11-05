@@ -22,14 +22,14 @@
 
 
 ## Task 2 — request hook、统计存储与只读 service API
-- 状态：Task2实施与本地验收完成，等待主代理独立审查；未提交、未部署、不宣称review clean。
-- 指定 BASE / 当前 HEAD：`9755c77ceaa12344c2f68f1c34c23ebe32693dbe`；分支 `feature/session-date-filter`。Task1保留且未改。起始`progress.md`、`README.md`、`package.json`已有tracked修改，Task1证明和Task2历史探针/日志、debug test-data均未覆盖/删除。
+- 状态：fix1实现已有原始完整测试证据并已接手核对；交接状态BLOCKED、等待主代理处理I3异常边界后再独立复审。不宣称review clean，未push/部署。
+- 当前Task2交付包含历史提交 `2f1a01542195bf4a07b10b3b2059c025fc9c94f4` 与本轮fix1工作区修复；fix1待精确本地提交及独立审查patch，Task1与Task2历史probe/报告/DB/WAL等untracked证据均原位保留，未stage/删除/clean。 本次审阅发现`index.mjs`的I3 catch目前会吞掉未知程序异常，超出“仅捕获预期服务故障”的裁定；已在`task-2-report.md` Takeover记录，等待主代理定界，未擅改。
 - 根因沿用完整诊断 `.superpowers/sdd/session-date-filter/task-2-diagnosis/diagnosis.md`：deferred seed INSERT竞争导致first-open丢pending；旧5秒busy handler同步卡event loop；Node默认发现混跑Bun测试/fixture。本轮新red：`task-2-recovery-red-baseline.log`，Bun 12/13、exit1，失败为真实并发writer SQLITE_BUSY。
 - 修复：IMMEDIATE schema+seed事务；初始化WAL/schema/seed busy上限10ms，运行期flush busy上限2ms；request hook经microtask只做内存计数。后台有限退避（25/75/200/500/1000ms，总窗口2秒、timer unref），失败保留pending，事务提交后只消费提交快照；成功边界为事务commit，无snapshot重提delta。坏schema/数据范围异常不静默清零。详情/边界见 `task-2-report.md` 和 `task-2-recovery-brief.md`。
 - 宿主只读契约（参考HEAD `50265256ba56ac164a680da0689e1c6d90dac471`）：`host.js:1323` 调用 `fn(input,p.options)`；`input.directory=settings.Dir()` 见 `host.go:1133-1160`。插件服务端第二参数才是package options。PluginHost reload由Go关闭Bun子进程（`host.go:538-560,904-925`），不发现插件dispose回调；故不宣称强制stop能等异步flush。page.service需真实page，Task2无page entry。
 - 验收（Bun1.3.10 / SQLite3.51.2）：`node --test test/matcher.test.mjs test/protocols.test.mjs` 57/57；`bun test test/task2.test.mjs` 19/19；`bun run test/task2-integration.bun.mjs`通过；最终`npm test` exit0（上述三组串行短路）。Bun多进程8轮均4/4 writer ok，5 fresh +3 seeded，每轮100/52/52/48精确。真实BEGIN IMMEDIATE锁下同步busy等待配置2ms、冷request hook实测约0.24ms且DB仍未打开；单次首次flush Promise总用时11.412ms，20ms heartbeat实测24.298ms；释放锁后约7.214ms自动commit，无手动flush/重复。此为合成环境实测，不是普遍性能保证。
 - 质量门：所有本轮JS语法检查、`git diff --check`、`npm pack --dry-run`均exit0。npm包仅8文件，不含测试、test-data、诊断和日志。测试路径在工程内，Task2 pid目录finally清理；起始debug/test-data全部保留。最终测试日志：`task-2-recovery-green-node-final.log`、`task-2-recovery-green-bun6.log`、`task-2-recovery-green-integration-final.log`、`task-2-recovery-green-suite-final.log`；质量日志`task-2-recovery-git-diff-check.log`、`task-2-recovery-pack-final.log`。
-- 新增`task-2-recovery-runs/`保存brief、red、green、npm和line map副本/索引；主报告 `task-2-report.md` 已更新为本轮结论。后续交主代理审查；当前没有patch/commit，不做Task3。
+- 本轮fix1依据独立审查报告`task-2-acceptance/task-2-review.md`修复I1浅层可计量结构、I2 OPTIONS先path/query allowlist、I3 listener启动失败仅统计部分降级；spec已追加主代理Ruling。详情/命令/日志见`task-2-report.md` fix1节；red日志`task-2-fix-1-red-i1.log`、`task-2-fix-1-red-i2.log`、`task-2-fix-1-red-i3.log`；green定向21/21、完整`npm test` Node57/57+Bun38/38+integration exit0，日志`task-2-fix-1-green-focused.log`、`task-2-fix-1-green-full.log`。
 
 - 修复轮 4 TDD：旧 HEAD 上 matcher 40 项中 35 pass / 5 fail（退出码 1），日志 `task-1-fix-4-red.log`；修复后 matcher 40/40 与 `npm test` 57/57 通过（退出码 0），日志 `task-1-fix-4-green.log` / `task-1-fix-4-full-test.log`。统一在顶层结构扫描前跳过 protected Markdown 行的开/闭 `<tools>` 标签，实际 malformed/unpaired 结构仍整段 fail-open。
 - 当前：修复轮 4 已提交（`9755c77ceaa12344c2f68f1c34c23ebe32693dbe`），复审结论为 clean；Task 1 阶段一完成。结论不覆盖 Task 2/3。

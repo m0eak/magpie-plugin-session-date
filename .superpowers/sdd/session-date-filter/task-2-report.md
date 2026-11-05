@@ -8,7 +8,7 @@
 
 ## 结论
 
-Task 2 实现与本轮验证已完成，**等待主代理独立复审；不代表 review clean**。当前 BASE 为 `9755c77ceaa12344c2f68f1c34c23ebe32693dbe`，尚未提交。任务范围只涉及本插件；无 Task 3 UI、部署、push、生产/联网/SSH/模型请求。
+Task 2 初始实现已提交（历史HEAD `2f1a01542195bf4a07b10b3b2059c025fc9c94f4`），独立审查发现I1可计量结构、I2 OPTIONS allowlist顺序、I3 server启动级联三个问题；本报告以下 fix1 节记录其已修复并本地验收，当前等待独立复审，不宣称review clean。任务范围只涉及本插件；无 Task 3 UI、部署、push、生产/联网/SSH/模型请求。
 
 ## 基线与边界
 
@@ -40,7 +40,7 @@ Task 2 实现与本轮验证已完成，**等待主代理独立复审；不代�
 
 - 新red：`task-2-recovery-red-baseline.log`，`bun test test/task2.test.mjs`，12/13 pass、1 fail，真实子进程`SQLITE_BUSY`、退出码1。保留，不伪造。
 - 最终Node：`node --test test/matcher.test.mjs test/protocols.test.mjs`，57/57，退出码0，`task-2-recovery-green-node-final.log`。
-- 最终Bun：`bun test test/task2.test.mjs`，19/19，退出码0，`task-2-recovery-green-bun-final.log`（显式单独运行最终Bun suite，保留`LOCK_METRICS`原始输出）；最终整套`npm test`对应`task-2-recovery-green-suite-final.log`。测试包含四协议计数、unsupported/非法不计、80并发hook、实时外部`BEGIN IMMEDIATE`锁、release后自动重试、锁中hook/eventloop响应、flush期间新增record不被旧snapshot清除、snapshot无重复、未知schema/corrupt/权限、service GET/CORS/method/host拒绝、singleton目录。
+- 最终Bun：`bun test test/task2.test.mjs`，修复后38/38，退出码0；`npm test`以`&&`串行运行Node 57/57、Bun 38/38、集成fixture，整体退出0；原始修复轮完整输出为`task-2-fix-1-green-full.log`。测试包含四协议计数、unsupported/非法不计、80并发hook、实时外部`BEGIN IMMEDIATE`锁、release后自动重试、锁中hook/eventloop响应、flush期间新增record不被旧snapshot清除、snapshot无重复、未知schema/corrupt/权限、service GET/CORS/method/host拒绝、singleton目录。
 - 真实Bun多进程竞争：同一Bun测试中8轮全部通过：5轮fresh空库四进程同步屏障首开 + 3轮已存在schema库四writer同步释放。每轮各writer 25请求，最终精确 `processed/matched/removed/unmatched=100/52/52/48`，UTC started/updated/lastMatched合并期望一致，每个子进程最终status=ok。整体验收平均约1.2秒；保留每轮摘要于final-bun日志。另有seeded writer独立竞争再通过4/4。
 - 持锁耗时实测：真实SQLite `BEGIN IMMEDIATE`锁holder下，最终完整npm suite所含锁测量：冷启动onRequest只运行过滤+内存record，观测0.240ms，且断言store.db仍为null；不是通过该hook触发数据库初始化。首次flush Promise总用时11.412ms（含初始化/SQL事务/调度，不等同event-loop阻塞），运行期busy同步wait上限配置2ms；20ms heartbeat实测24.298ms（受OS调度影响，未见秒级卡顿）；pending为1并degraded保留。写入release后自动恢复观测7.214ms（包括轮询与locker退出）。最终持久统计为1/1/1、无重复，状态ok。以上来自Bun 1.3.10本机合成DB；只测一次，不是统计分布或普遍保证。
 - Bun集成：`bun run test/task2-integration.bun.mjs`，hook过滤、API只读、owner-only和4进程聚合通过，退出0，`task-2-recovery-green-integration-final.log`（最终suite内集成步骤的命令退出码亦记录于suite log）。测试目录位于工程test-data下并finally清理。
@@ -126,3 +126,57 @@ export default { id:'session-date-filter', async server(input, options) { ... } 
 ### 最后一轮测量修订（对应最终提交版本）
 
 前文阈值与约0.35秒指标是此前被后续版本覆盖的历史记录。最终提交候选代码的确切值与测量见 `task-2-recovery-green-bun-final.log` / `task-2-recovery-green-suite-final.log`：初始化/WAL/schema busy上限10ms，运行期flush上限2ms；最终完整`npm test`所含锁测量：冷request hook 0.240ms，执行后store.db仍未打开；单次首次`flush()` Promise用时11.412ms（含初始化/SQL事务/调度，不等同event-loop阻塞）；20ms heartbeat实测24.298ms；写入release后自动恢复观测7.214ms（包括轮询与locker退出）。该值是一次本机合成运行，不是性能分位数或普遍保证。8轮并发均为4/4 writer成功。
+
+
+## Fix1 — 独立审查 I1/I2/I3 修复与验收（主代理批准范围）
+
+### 状态与BASE
+- FIX_BASE：`2f1a01542195bf4a07b10b3b2059c025fc9c94f4`。完成后需以本地提交的新HEAD及 `task-2-fix-1-review.patch` 为审查依据。Task1过滤器、matcher、原57个Node纯逻辑测试与SQLite事务/短锁重试语义保持不变。
+- 主代理Ruling：实现有限的“可计量结构”检查，而不是复制各上游完整schema；确定可识别的必要成员畸形则不变换、不计量；未知扩展payload只透传、不计量，合法历史常见工具/多模态结构仍接受。只读统计服务不可用时请求过滤继续运行，统计页必须明显呈不可用；不会声称listener还在或API可访问。
+- 初始独立评审原文与三份probe保留于 `task-2-acceptance/task-2-review.md`、`invalid-body-probe.*`、`options-path-probe.*`、`server-start-probe.*`，没有覆盖报告结论。
+
+### I1 — 可计量请求的有限结构校验
+- 根因：旧hook仅查顶层数组，`messages:[{}]`被计入processed/unmatched。新增独立 `src/request-measurement.mjs`，与过滤器`filterRequest()`职责分离，不改Task1 matcher或协议扫描逻辑。对四协议的message/member、必要role/content、已识别文本与工具/media结构做浅检查；非法成员整体 fail-open且不排microtask。已知可接受的用户、assistant、tool/function历史、Responses `previous_response_id`续聊与已知媒体块可计量。允许未知body扩展字段；未知内容part/plugin payload保持原样但该body不计量，避免把未知结构错误记成成功请求。文本扫描仍仅由原filter决定。
+- host依据：只读参考`internal/plugin/host.js:1414-1432`传入protocol并在routing前调用`onRequest`；`host.js:1306-1344`在plugin server `fn(input,p.options)`后成功时收集gateway hook。新增validator仅用于计量资格，不拒绝/重写宿主上游请求。
+- Red：`bun test test/task2.test.mjs --test-name-pattern 'request measurement leaves malformed'` 在修复前真实失败，15项内层畸形结构负例均复现统计被增加，退出1；`task-2-fix-1-red-i1.log`。
+- Green：同一负例+合法场景定向suite 17/17通过、退出0，`task-2-fix-1-green-i1.log`；另定向总集成suite含I1+I2+I3 21/21通过，`task-2-fix-1-green-focused.log`。覆盖16种畸形结构、四协议合法多模态/工具历史、合法无匹配计一次、Responses仅`previous_response_id`，输入不变/非法零计数/未知扩展零计数。
+
+### I2 — OPTIONS先校验路径与query
+- 根因：旧handler在验证pathname/query前对所有OPTIONS返回204。现在同一固定路径和空query allowlist在OPTIONS前执行；未知路径或任何query返回404，不附CORS allow headers；合法`/api/stats` GET预检仍204；非GET预检405。Host/Origin既有检查仍先执行。此修复遵守服务契约；历史204只放行预检、并未读取或返回数据，不描述为既有数据泄露。
+- host依据：服务被宿主loopback代理，`internal/gui/pageservice.go`与`pluginpage.go`要求服务固定path/loopback及sandbox Origin；无需扩大服务面。
+- Red：`bun test test/task2.test.mjs --test-name-pattern 'HTTP service is read-only'` 修复前实测非法预检状态204而预期404，退出1；`task-2-fix-1-red-i2.log`。
+- Green：同上用例在 `task-2-fix-1-green-focused.log` 通过，含非法path/query无CORS headers断言、合法204与POST预检405。
+
+### I3 — listener部分降级但hook仍可注册
+- 根因：default server的`Bun.serve`异常会冒泡到宿主loader，使同package gateway hook不被收集。`index.mjs`现在只在statistics listener创建/预热storage这一预期非核心边界catch；持有store/状态并正常return，让宿主继续加载hook。状态由 `src/plugin-server-status.mjs` 暴露 `getPluginServerStatus()`：`{state:'available'|'unavailable',listenerAvailable,storageStatus:'ok'|'degraded',reason}`；listener失败reason固定为`listener-unavailable`，不含端口/路径/异常。`input.client.app.log`是host实际提供的公开log API；仅发一次固定warn，logger失败也不抛。没有探测/停止端口所有者，不把未知listener伪装成统计API。Store若因配置目录/SQLite不可用，其既有`degraded`保留；过滤仍工作。API listener失败时页面fetch仍会失败，未来Task3须明显呈现“统计服务不可用”，不能仅依赖聚合store status。
+- host依据：`internal/plugin/host.js:1146-1186`证明input含`client.app.log`，其实现转发log事件；`host.js:1306-1323`先运行default server、异常时`one()`失败；`host.js:1326-1344`从Promise结果仅为无error的plugin加入`gatewayHooks`。本地测试是实际default server与真实Bun loopback，不宣称已跑真实宿主loader集成。
+- Red：`bun test test/task2.test.mjs --test-name-pattern 'plugin server bind failure'` 修复前实际随机loopback端口占用导致default server抛EADDRINUSE，`doesNotReject`断言失败，退出1；`task-2-fix-1-red-i3.log`。
+- Green：最终测试中本进程先用`Bun.serve({hostname:'127.0.0.1',port:0})`取得自己owned端口并继续持有；以真实default `server(input,{sessionDateFilterPort:ownedPort})`触发绑定失败，确认返回不抛、status unavailable/listener false、脱敏warn仅一次；再实际调用公开`onRequest`看到system日期行变换且stats是1/1/1，并GET原端口确认仍由owner响应，不会停止或冒认它。`task-2-fix-1-green-focused.log`通过。另有审查报告所列只读host控制流源码证据；真实loader组合测试归Task3宿主集成，不在本轮声称已验证。
+
+### 全套验收与未改变的边界
+- `node --check src/request-measurement.mjs src/plugin-server-status.mjs src/request.hooks.mjs src/service-api.mjs index.mjs test/task2.test.mjs`（逐文件检查）通过；`git diff --check`通过。
+- 最终`npm test`串行执行`node --test test/matcher.test.mjs test/protocols.test.mjs && bun test test/task2.test.mjs && bun run test/task2-integration.bun.mjs`，退出0：Node 57/57；Bun Task2 38/38（包含fix1回归）；集成Hook/API/权限/四进程fixture通过。原始完整输出 `task-2-fix-1-green-full.log`。8轮四进程并发原有测试继续通过，fresh/seeded writer均精确100/52/52/48。
+- 最终完整suite锁测量原始值：hook 0.208ms；首次flush Promise 11.227ms（其同步SQLite busy等待上限仍2ms，不能把Promise全时长当event-loop阻塞）；20ms heartbeat实测24.155ms；release到自动恢复观测8.136ms（含轮询）。一次本机合成样本，非性能保证。旧Task2事务、WAL与有限短锁重试未重写。
+- 本轮唯一新增运行模块为`src/request-measurement.mjs`、`src/plugin-server-status.mjs`及相应测试；不引入依赖，不做Task3/page，不修改DB schema。页面端需把listener unavailable与store degraded分开显示。
+
+## Takeover handoff — 2026-11-05
+
+### 状态：BLOCKED（交主代理判断，不宣称复审通过）
+
+旧实施线程已由主代理中断；本次接手未派生子代理，也未对主代理/参考仓库、生产、SSH、Key、真实模型、远端、部署或发布执行操作。基线 `FIX_BASE=2f1a01542195bf4a07b10b3b2059c025fc9c94f4` 未移动；保留其上的fix1工作区实现，不reset/clean/stash/amend。
+
+### 已核对的原始证据
+
+- `task-2-fix-1-red-i1.log`：15项畸形结构回归断言均复现旧行为、退出1；`task-2-fix-1-red-i2.log`复现非法path/query预检得到204而断言要求404、退出1；`task-2-fix-1-red-i3.log`复现真实owned loopback端口被占时default server冒出`EADDRINUSE`、退出1。
+- `task-2-fix-1-green-full.log`原始完整输出：`npm test`退出0，Node 57/57、Bun Task2 38/38、integration成功；8轮4进程结果均100/52/52/48，锁指标为hook 0.208ms、首次flush Promise 11.227ms、heartbeat 24.155ms、自动恢复8.136ms。上述计时仅为本机单次合成样本。日志时间晚于新增模块及测试文件修改时间；本次未重复长历史/并发套件。
+- 本次重新执行：逐文件`node --check`、`git diff --check`均退出0；`npm pack --dry-run`退出0，包包含`src/request-measurement.mjs`和`src/plugin-server-status.mjs`，未包含test、test-data或证据目录。没有重跑测试套件。
+
+### BLOCKER — I3 catch范围比裁定宽
+
+实现 `index.mjs` 的try/catch把整个`createService()`及其后状态初始化包在无条件`catch {}`中。`createService()`除预期的listener bind/服务故障（如本测试中的`EADDRINUSE`）外，也可能因程序错误抛出；这些未知错误目前会被误标成`listener-unavailable`并吞掉，随后照常返回hook。这与fix1裁定“catch范围限预期服务故障，未知程序错误不能全吞”存在直接不一致。定位：`index.mjs`中`server()`内`try { service = createService(...); initializePluginServer(...) } catch { ... }`。
+
+按交接边界，本轮不自行改写错误分类或扩大异常策略；需要主代理决定仅对哪些可识别的服务启动故障做partial-degraded，以及未知错误应如何重新抛出。故此提交只打包待复审现场，不能视为I3已验收。
+
+### 本次修改与保护边界
+
+仅更新本交接记录与`progress.md`当前摘要；实现、测试及spec不因接手而扩展。将精确提交fix1源文件/测试/README/spec/两份追踪文档；不纳入原始日志、DB/WAL、debug探针、`test-data/`、fixture及其他未知untracked文件。提交后生成从FIX_BASE到新HEAD的完整review patch；独立复审仍须另行执行。

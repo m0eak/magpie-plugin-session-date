@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { onRequest, createRequestHook } from '../src/request.hooks.mjs';
 import { StatsStore, configureStatsStore, getStatsStore, resetStatsStoreForTests } from '../src/stats-store.mjs';
 import { createService } from '../src/service-api.mjs';
+import { initializePluginServer, getPluginServerStatus } from '../src/plugin-server-status.mjs';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const testDataRoot = join(root, 'test-data', `task2-${process.pid}`);
@@ -43,15 +44,127 @@ test('onRequest counts each supported protocol request once', async () => {
   const hook = createRequestHook({ store, now: () => new Date('2026-11-04T03:20:00.000Z') });
   const bodies = [
     ['chat', { messages: [{ role: 'user', content: 'plain' }] }],
-    ['responses', { input: [{ role: 'user', content: 'plain' }] }],
+    ['responses', { input: [{ type: 'message', role: 'user', content: 'plain' }] }],
     ['anthropic', { messages: [{ role: 'user', content: 'plain' }] }],
     ['gemini', { contents: [{ role: 'user', parts: [{ text: 'plain' }] }] }],
   ];
   for (const [protocol, body] of bodies) assert.equal(await hook(body, { protocol }), undefined);
   const { stats } = store.snapshot();
   assert.deepEqual([stats.processedRequests, stats.matchedRequests, stats.removedLines, stats.unmatchedRequests], [4, 0, 0, 4]);
-  assert.equal(stats.startedAt, '2026-11-04T03:20:00.000Z');
+  const invalidBodies = [
+    ['chat', { messages: [{}] }],
+    ['chat', { messages: [{ role: 'system', content: 9 }] }],
+    ['responses', { input: [{}] }],
+    ['responses', { instructions: [], input: [] }],
+    ['anthropic', { messages: [{ role: 'tool', content: 'result' }] }],
+    ['anthropic', { messages: [{ role: 'user', content: [{}] }] }],
+    ['gemini', { contents: [{}] }],
+    ['gemini', { contents: [{ role: 'user', parts: [{}] }] }],
+  ];
+  for (const [protocol, body] of invalidBodies) {
+    const snapshotBefore = await store.snapshot();
+    assert.equal(await hook(body, { protocol }), undefined);
+    await Promise.resolve();
+    assert.equal(store.snapshot().stats.processedRequests, snapshotBefore.stats.processedRequests);
+  }
+  assert.equal(await hook({ messages: [] }, { protocol: 'unknown' }), undefined);
+  assert.equal(await hook(null, { protocol: 'chat' }), undefined);
+  assert.deepEqual((await store.snapshot()).stats, {
+    processedRequests: 4, matchedRequests: 0, removedLines: 0, unmatchedRequests: 4,
+    startedAt: '2026-11-04T03:20:00.000Z', updatedAt: '2026-11-04T03:20:00.000Z', lastMatchedAt: null,
+  });
   await store.close();
+});
+
+async function assertUnmeasurable(protocol, body, label) {
+  const dir = await freshDir(`unmeasurable-${label}`);
+  const store = new StatsStore({ dataDir: dir, autoFlush: false });
+  const hook = createRequestHook({ store, now: () => new Date('2026-11-04T05:00:00.000Z') });
+  const before = structuredClone(body);
+  assert.equal(await hook(body, { protocol }), undefined);
+  await Promise.resolve();
+  assert.deepEqual(body, before);
+  assert.deepEqual(store.snapshot().stats, {
+    processedRequests: 0, matchedRequests: 0, removedLines: 0, unmatchedRequests: 0,
+    startedAt: null, updatedAt: null, lastMatchedAt: null,
+  });
+  await store.close();
+}
+
+for (const [label, protocol, body] of [
+  ['chat-empty-member', 'chat', { messages: [{}] }],
+  ['chat-null-member', 'chat', { messages: [null] }],
+  ['chat-missing-role', 'chat', { messages: [{ content: 'hello' }] }],
+  ['chat-missing-content', 'chat', { messages: [{ role: 'user' }] }],
+  ['chat-bad-content-type', 'chat', { messages: [{ role: 'user', content: 42 }] }],
+  ['chat-empty-text-part', 'chat', { messages: [{ role: 'system', content: [{}] }] }],
+  ['responses-empty-member', 'responses', { input: [{}] }],
+  ['responses-message-missing-role', 'responses', { input: [{ type: 'message', content: 'hello' }] }],
+  ['responses-empty-text-part', 'responses', { input: [{ type: 'message', role: 'user', content: [{}] }] }],
+  ['responses-bad-instructions', 'responses', { input: 'hello', instructions: [] }],
+  ['anthropic-invalid-role', 'anthropic', { messages: [{ role: 'tool', content: 'result' }] }],
+  ['anthropic-empty-member', 'anthropic', { messages: [{}] }],
+  ['anthropic-empty-text-part', 'anthropic', { messages: [{ role: 'user', content: [{}] }] }],
+  ['gemini-empty-content', 'gemini', { contents: [{}] }],
+  ['gemini-empty-part', 'gemini', { contents: [{ role: 'user', parts: [{}] }] }],
+  ['gemini-bad-role', 'gemini', { contents: [{ role: 12, parts: [{ text: 'hello' }] }] }],
+]) {
+  test(`request measurement leaves malformed ${label} uncounted and unchanged`, async () => {
+    await assertUnmeasurable(protocol, body, label);
+  });
+}
+
+test('request measurement accepts valid chat/Responses/Anthropic/Gemini tool histories and continuations', async () => {
+  const cases = [
+    ['chat', { messages: [
+      { role: 'user', content: [{ type: 'text', text: 'find a value' }, { type: 'image_url', image_url: { url: 'https://example.invalid/picture.png' } }] },
+      { role: 'assistant', content: null, tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'lookup', arguments: JSON.stringify({ id: 1 }) } }] },
+      { role: 'tool', tool_call_id: 'call_1', content: 'value' },
+      { role: 'assistant', content: 'done' },
+    ] }],
+    ['responses', { previous_response_id: 'resp_previous', input: [
+      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'calling tool' }] },
+      { type: 'function_call', call_id: 'call_2', name: 'lookup', arguments: JSON.stringify({ id: 1 }) },
+      { type: 'function_call_output', call_id: 'call_2', output: 'value' },
+      { type: 'reasoning', summary: [{ type: 'summary_text', text: 'done' }] },
+    ] }],
+    ['responses', { previous_response_id: 'resp_previous' }],
+    ['anthropic', { system: [{ type: 'text', text: 'be concise', cache_control: { type: 'ephemeral' } }], messages: [
+      { role: 'assistant', content: [{ type: 'tool_use', id: 'tool_1', name: 'lookup', input: { id: 1 } }] },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tool_1', content: 'value' }] },
+    ] }],
+    ['gemini', { systemInstruction: { parts: [{ text: target }] }, contents: [
+      { role: 'user', parts: [{ text: 'find a value' }] },
+      { role: 'model', parts: [{ functionCall: { name: 'lookup', args: { id: 1 } } }] },
+      { role: 'model', parts: [{ functionResponse: { name: 'lookup', response: { value: 1 } } }] },
+    ] }],
+  ];
+  for (let index = 0; index < cases.length; index += 1) {
+    const [protocol, body] = cases[index];
+    const dir = await freshDir(`measurable-valid-${index}`);
+    const store = new StatsStore({ dataDir: dir, autoFlush: false });
+    const hook = createRequestHook({ store });
+    const original = structuredClone(body);
+    const result = await hook(body, { protocol });
+    if (protocol === 'gemini') {
+      assert.equal(result.systemInstruction.parts[0].text, clean);
+      assert.equal(body.systemInstruction.parts[0].text, target);
+    } else {
+      assert.equal(result, undefined);
+      assert.deepEqual(body, original);
+    }
+    await Promise.resolve();
+    const stats = store.snapshot().stats;
+    assert.equal(stats.processedRequests, 1, `case ${index}`);
+    assert.equal(stats.matchedRequests, protocol === 'gemini' ? 1 : 0, `case ${index}`);
+    assert.equal(stats.unmatchedRequests, protocol === 'gemini' ? 0 : 1, `case ${index}`);
+    await store.close();
+  }
+});
+
+test('unknown nested content parts pass through but are not counted as measurable', async () => {
+  const body = { messages: [{ role: 'user', content: [{ type: 'future_payload', payload: { value: 1 } }] }] };
+  await assertUnmeasurable('chat', body, 'unknown-extension-part');
 });
 
 test('onRequest returns undefined for an unchanged supported body and increments unmatched once', async () => {
@@ -426,6 +539,14 @@ test('HTTP service is read-only, allows only null/same origin and hides storage 
     const options = await fetch(new URL('/api/stats', address), { method: 'OPTIONS', headers: { Origin: 'null', 'Access-Control-Request-Method': 'GET' } });
     assert.equal(options.status, 204);
     assert.equal(options.headers.get('access-control-allow-methods'), 'GET, OPTIONS');
+    const badPathPreflight = await fetch(new URL('/not-an-api?path=/secret', address), { method: 'OPTIONS', headers: { Origin: 'null', 'Access-Control-Request-Method': 'GET' } });
+    assert.equal(badPathPreflight.status, 404);
+    assert.equal(badPathPreflight.headers.get('access-control-allow-origin'), null);
+    assert.equal(badPathPreflight.headers.get('access-control-allow-methods'), null);
+    const badQueryPreflight = await fetch(new URL('/api/stats?file=/secret', address), { method: 'OPTIONS', headers: { Origin: 'null', 'Access-Control-Request-Method': 'GET' } });
+    assert.equal(badQueryPreflight.status, 404);
+    assert.equal(badQueryPreflight.headers.get('access-control-allow-origin'), null);
+    assert.equal(badQueryPreflight.headers.get('access-control-allow-methods'), null);
     const badMethodPreflight = await fetch(new URL('/api/stats', address), { method: 'OPTIONS', headers: { Origin: 'null', 'Access-Control-Request-Method': 'POST' } });
     assert.equal(badMethodPreflight.status, 405);
     const post = await fetch(new URL('/api/stats', address), { method: 'POST' });
@@ -462,6 +583,48 @@ test('service fails safely when database is unavailable and emits only generic d
   } finally {
     await service.stop();
     await store.close();
+  }
+});
+
+test('plugin server bind failure degrades statistics but keeps the request hook loaded', async () => {
+  const entry = await import('../index.mjs');
+  const priorStore = resetStatsStoreForTests();
+  await priorStore?.close();
+  const configurationRoot = await freshDir('server-bind-degraded');
+  const owner = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('owned') });
+  const warnings = [];
+  const input = {
+    directory: configurationRoot,
+    client: { app: { log: async (options) => { warnings.push(options?.body ?? options); } } },
+  };
+  const options = { sessionDateFilterPort: owner.port };
+  try {
+    await assert.doesNotReject(() => entry.default.server(input, options));
+    assert.equal(typeof entry.getPluginServerStatus, 'function');
+    assert.deepEqual(entry.getPluginServerStatus(), {
+      state: 'unavailable', listenerAvailable: false, storageStatus: 'ok', reason: 'listener-unavailable',
+    });
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0].level, 'warn');
+    assert.equal(warnings[0].message, 'Statistics listener unavailable; request filtering remains active.');
+    assert.equal(JSON.stringify(warnings).includes(String(owner.port)), false);
+
+    const hook = await import('../src/request.hooks.mjs');
+    const request = { messages: [{ role: 'system', content: target }] };
+    const transformed = await hook.onRequest(request, { protocol: 'chat' });
+    assert.equal(transformed.messages[0].content, clean);
+    await Promise.resolve();
+    const stats = getStatsStore().snapshot().stats;
+    assert.deepEqual([stats.processedRequests, stats.matchedRequests, stats.removedLines], [1, 1, 1]);
+    assert.equal(entry.getPluginServerStatus().listenerAvailable, false);
+    assert.equal((await fetch(`http://127.0.0.1:${owner.port}/`)).status, 200);
+    await entry.default.server(input, options);
+    assert.equal(entry.getPluginServerStatus().listenerAvailable, false);
+    assert.equal(warnings.length, 1, 'startup warning is emitted once');
+  } finally {
+    owner.stop(true);
+    const store = resetStatsStoreForTests();
+    await store?.close();
   }
 });
 

@@ -1,8 +1,8 @@
 # Session Date Filter / 会话日期清理
 
-> **开发中：阶段 2 / 3。** Task 1 纯函数过滤已通过审查；Task 2 request hook、SQLite 聚合存储和 loopback API 已完成本地验收，等待主代理独立审查。尚无真实页面、最终安装包或部署结论；不要安装到生产环境。
+> **开发中：阶段 2 / 3。** Task 1 纯函数过滤已通过审查；Task 2 request hook、SQLite 聚合存储和 loopback API 已完成本地验收，等待主代理独立审查。尚无真实页面、最终安装包或部署结论；Task2独立审查发现已做本地修复，等待复审；不要安装到生产环境。
 
-此独立插件在 magpie 的公开异步请求 hook 中，对客户端请求中的 LobeHub Memory / Credentials 工具提示词执行窄范围变换：只移除经结构 wrapper 确认的 `<session_context>` 中完整英文 `Session date: Weekday, Month D, YYYY` 行。它不会扫描任意 system prompt、user/assistant/tool 内容、未知字段、图片或非文本块；不做协议转换。插件不保存请求正文、Key、模型、会话、provider、agent 或逐请求明细。
+此独立插件在 magpie 的公开异步请求 hook 中，对客户端请求中的 LobeHub Memory / Credentials 工具提示词执行窄范围变换：只移除经结构 wrapper 确认的 `<session_context>` 中完整英文 `Session date: Weekday, Month D, YYYY` 行。它不会扫描任意 system prompt、user/assistant/tool 内容、未知字段、图片或非文本块；不做协议转换。插件不保存请求正文、Key、模型、会话、provider、agent 或逐请求明细。统计只包含四协议中通过本插件浅层检查的可计量请求：必要message/input/parts成员、已知role及文本/工具/媒体成员形状须合法；已知结构畸形或成员缺失会透传原请求、不变换、不计数。合法常见user/assistant/tool历史、多模态块和Responses `previous_response_id`续聊可计量。未知扩展字段允许透传；若未知扩展内容块出现在受检容器内、无法按已知形状验证，则整条不计数、不变换，避免把未理解结构误报为有效统计。该浅检查仅定义计量资格，不是完整上游schema validator；filter仍独立只扫描规定的system/developer文字。
 
 此操作只计提示词变换次数，不代表模型端缓存命中率，也不能保证节省 token 或改善缓存。其他动态提示词、路由和缓存 TTL 仍会影响结果。删除日期可能减弱 Memory 在消息缺少时间戳时的相对时间 fallback。
 
@@ -37,7 +37,7 @@
 }
 ```
 
-`unmatchedRequests` 是 `processedRequests - matchedRequests`。尚未处理任何有效请求时三个时间字段为 `null`。未曾发生命中时 `lastMatchedAt` 为 `null`。`GET /health` 是可选只读健康查询。服务只监听 `127.0.0.1`，只接受 GET 和必要的 OPTIONS 预检，固定路径，不允许 URL 选择文件路径。sandbox `Origin: null` 与同源 loopback only；页面访问必须经宿主代理 token，不可公开映射服务端口。Task 2 不声明空 page；Task 3 提供真实 HTML 后才应声明 `page.service` 并用 `magpie.service`。
+若loopback统计listener不能启动，公开hook依然加载并过滤，但统计API无法访问；server状态会报`unavailable/listener-unavailable`并向宿主发一次固定warn。未来Task3必须明显显示“统计服务不可用”，不可误显示为正常空统计。`unmatchedRequests` 是 `processedRequests - matchedRequests`。尚未处理任何有效请求时三个时间字段为 `null`。未曾发生命中时 `lastMatchedAt` 为 `null`。`GET /health` 是可选只读健康查询。服务只监听 `127.0.0.1`，只接受 GET 和必要的 OPTIONS 预检，固定路径，不允许 URL 选择文件路径。sandbox `Origin: null` 与同源 loopback only；页面访问必须经宿主代理 token，不可公开映射服务端口。Task 2 不声明空 page；Task 3 提供真实 HTML 后才应声明 `page.service` 并用 `magpie.service`。
 
 SQLite WAL with write-ahead initialization and serialized atomic aggregate updates. Each supported request updates in-memory counters only; a periodic (~30 second) background flush uses a 2 ms SQLite busy wait followed by capped exponential retry scheduling (up to 2 seconds per retry window). A request transform never waits for a database lock. A failed transaction retains pending deltas and reports `degraded`; later cycle/retry can recover. Same-process snapshots include local pending counts; other plugin hosts appear only after commit. The 30-second interval is a normal-operation target, not a guarantee during persistent storage lock/failure. Crash or host shutdown while pending deltas remain may lose this process's uncommitted window; graceful close attempts one bounded flush but cannot guarantee persistence during a continuing lock.
 
@@ -45,7 +45,7 @@ SQLite WAL with write-ahead initialization and serialized atomic aggregate updat
 
 ## Iteration status
 
-Task 2 request hook、SQLite aggregate store 与 loopback API 已通过本地完整自动化验收，等待主代理独立审查。插件主机依 `directory` 参数在其配置根写入固定 `session-date-filter/stats.sqlite`，不会写入包目录/`plugins.json`。页面尚未实现，manifest 暂不声明空 page 或 `page.service`。不要安装到生产环境。
+Task 2 request hook、SQLite aggregate store 与 loopback API 已通过本地完整自动化验收；fix1根据独立审查新增浅层可计量结构检查、预检path/query allowlist与listener部分降级，当前等待独立复审。插件主机依 `directory` 参数在其配置根写入固定 `session-date-filter/stats.sqlite`，不会写入包目录/`plugins.json`。页面尚未实现，manifest 暂不声明空 page 或 `page.service`。不要安装到生产环境。
 
 纯逻辑及 Task 1 回归：
 

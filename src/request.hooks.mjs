@@ -1,25 +1,15 @@
 import { filterRequest } from './protocols.mjs';
 import { getStatsStore } from './stats-store.mjs';
+import { inspectRequestBody } from './request-measurement.mjs';
 
 const SUPPORTED = new Set(['chat', 'responses', 'anthropic', 'gemini']);
-const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
-
-function isLegalBody(body, protocol) {
-  if (!isRecord(body)) return false;
-  switch (protocol) {
-    case 'chat': return Array.isArray(body.messages);
-    case 'responses': return Array.isArray(body.input) || typeof body.instructions === 'string';
-    case 'anthropic': return Array.isArray(body.messages) && (body.system === undefined || typeof body.system === 'string' || Array.isArray(body.system));
-    case 'gemini': return Array.isArray(body.contents) || isRecord(body.systemInstruction);
-    default: return false;
-  }
-}
-
 /** Build the public async onRequest hook with narrow dependency injection. */
 export function createRequestHook({ store = getStatsStore, protocols = { filterRequest }, now = () => new Date() } = {}) {
   return async function onRequest(body, ctx) {
     const protocol = ctx?.protocol;
-    if (!SUPPORTED.has(protocol) || !isLegalBody(body, protocol)) return undefined;
+    if (!SUPPORTED.has(protocol)) return undefined;
+    const measurement = inspectRequestBody(body, protocol);
+    if (!measurement.valid || !measurement.measurable) return undefined;
 
     const value = now();
     const date = value instanceof Date ? value : new Date(value);

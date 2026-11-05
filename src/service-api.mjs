@@ -22,6 +22,9 @@ export function createService({ store, port = 3479 } = {}) {
     const origin = request.headers.get('origin');
     if (requestHost !== host) return jsonResponse({ error: 'Forbidden' }, 403);
     if (origin != null && origin !== 'null' && origin !== `http://${host}`) return jsonResponse({ error: 'Forbidden' }, 403);
+    if ((url.pathname !== '/api/stats' && url.pathname !== '/health') || url.search) {
+      return jsonResponse({ error: 'Not found' }, 404);
+    }
     const cors = {
       'access-control-allow-origin': origin ?? `http://${host}`,
       'access-control-allow-methods': 'GET, OPTIONS',
@@ -34,8 +37,6 @@ export function createService({ store, port = 3479 } = {}) {
       return new Response(null, { status: 204, headers: cors });
     }
     if (request.method !== 'GET') return jsonResponse({ error: 'Method not allowed' }, 405, cors);
-    if (url.pathname !== '/api/stats' && url.pathname !== '/health') return jsonResponse({ error: 'Not found' }, 404, cors);
-    if (url.search) return jsonResponse({ error: 'Not found' }, 404, cors);
     if (url.pathname === '/health') return jsonResponse({ status: store.snapshot().status }, 200, cors);
     try {
       return jsonResponse(store.snapshot(), 200, cors);
