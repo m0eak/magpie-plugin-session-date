@@ -1,0 +1,40 @@
+TAP version 13
+# Subtest: stats schema accepts consistent counts and nullable UTC timestamps
+ok 1 - stats schema accepts consistent counts and nullable UTC timestamps
+  ---
+  duration_ms: 2.508622
+  type: 'test'
+  ...
+# Subtest: stats schema rejects alien, malformed, unsafe and inconsistent data
+ok 2 - stats schema rejects alien, malformed, unsafe and inconsistent data
+  ---
+  duration_ms: 0.810874
+  type: 'test'
+  ...
+# Subtest: poller marks initial network failure unavailable, keeps stale success, times out without overlap and pauses when hidden
+ok 3 - poller marks initial network failure unavailable, keeps stale success, times out without overlap and pauses when hidden
+  ---
+  duration_ms: 16.023421
+  type: 'test'
+  ...
+# Subtest: manifest and initial page use real page bridge and service navigation without direct API fetch
+ok 4 - manifest and initial page use real page bridge and service navigation without direct API fetch
+  ---
+  duration_ms: 4.546013
+  type: 'test'
+  ...
+# Subtest: service serves only fixed static assets and read-only stats with bearer auth
+ok 5 - service serves only fixed static assets and read-only stats with bearer auth # SKIP
+  ---
+  duration_ms: 0.199781
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 1
+# todo 0
+# duration_ms 104.03639

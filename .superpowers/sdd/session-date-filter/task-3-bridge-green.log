@@ -1,0 +1,16 @@
+bun test v1.3.10 (30e609e0)
+
+test/task3-ui.test.mjs:
+(pass) stats schema accepts consistent counts and nullable UTC timestamps [2.00ms]
+(pass) stats schema rejects alien, malformed, unsafe and inconsistent data
+(pass) poller marks initial network failure unavailable, keeps stale success, times out without overlap and pauses when hidden [17.00ms]
+(pass) manifest and initial page use real page bridge and service navigation without direct API fetch [2.00ms]
+(pass) service serves only fixed static assets and read-only stats with bearer auth [10.00ms]
+
+test/task3-bridge.test.mjs:
+(pass) bridge accepts only parent handshake and tracks theme plus host visibility
+(pass) bridge timeout fails closed and tears down its listener [6.00ms]
+
+ 7 pass
+ 0 fail
+Ran 7 tests across 2 files. [97.00ms]

@@ -1,0 +1,101 @@
+[
+  {
+    "id": "lobehub-plugin-session-date-filter@0.1.0",
+    "name": "lobehub-plugin-session-date-filter",
+    "version": "0.1.0",
+    "size": 23674,
+    "unpackedSize": 83275,
+    "shasum": "09e91093a7b0908f9798b733a0549df1b1eb6afc",
+    "integrity": "sha512-DiZcTVa64hvJkWRywjQUqdZYBPbRC6j8lSHROtKuTszOdPrWXYK/EXELJijgqxrzD5ooP7xgvfp8G0uYyEIYqw==",
+    "filename": "lobehub-plugin-session-date-filter-0.1.0.tgz",
+    "files": [
+      {
+        "path": "README.md",
+        "size": 4679,
+        "mode": 420
+      },
+      {
+        "path": "index.mjs",
+        "size": 1798,
+        "mode": 420
+      },
+      {
+        "path": "package.json",
+        "size": 1542,
+        "mode": 420
+      },
+      {
+        "path": "page/app.mjs",
+        "size": 4093,
+        "mode": 420
+      },
+      {
+        "path": "page/boot.js",
+        "size": 686,
+        "mode": 420
+      },
+      {
+        "path": "page/index.html",
+        "size": 807,
+        "mode": 420
+      },
+      {
+        "path": "page/service.html",
+        "size": 1936,
+        "mode": 420
+      },
+      {
+        "path": "page/style.css",
+        "size": 3024,
+        "mode": 420
+      },
+      {
+        "path": "src/matcher.mjs",
+        "size": 9280,
+        "mode": 420
+      },
+      {
+        "path": "src/page-bridge.mjs",
+        "size": 3065,
+        "mode": 420
+      },
+      {
+        "path": "src/plugin-server-status.mjs",
+        "size": 1080,
+        "mode": 420
+      },
+      {
+        "path": "src/protocols.mjs",
+        "size": 7070,
+        "mode": 420
+      },
+      {
+        "path": "src/request-measurement.mjs",
+        "size": 13821,
+        "mode": 420
+      },
+      {
+        "path": "src/request.hooks.mjs",
+        "size": 2102,
+        "mode": 420
+      },
+      {
+        "path": "src/service-api.mjs",
+        "size": 7152,
+        "mode": 420
+      },
+      {
+        "path": "src/stats-store.mjs",
+        "size": 16809,
+        "mode": 420
+      },
+      {
+        "path": "src/stats-ui.mjs",
+        "size": 4331,
+        "mode": 420
+      }
+    ],
+    "entryCount": 17,
+    "bundled": []
+  }
+]

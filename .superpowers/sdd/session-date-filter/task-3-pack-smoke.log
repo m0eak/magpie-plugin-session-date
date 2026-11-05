@@ -1,0 +1,7 @@
+/ 200 text/html; charset=utf-8
+/app.mjs 200 text/javascript; charset=utf-8
+/boot.js 200 text/javascript; charset=utf-8
+/page-bridge.mjs 200 text/javascript; charset=utf-8
+/stats-ui.mjs 200 text/javascript; charset=utf-8
+/style.css 200 text/css; charset=utf-8
+packed service smoke: exit=0

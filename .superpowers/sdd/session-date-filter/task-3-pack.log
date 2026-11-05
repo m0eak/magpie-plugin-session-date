@@ -1,0 +1,31 @@
+npm notice
+npm notice 📦  lobehub-plugin-session-date-filter@0.1.0
+npm notice Tarball Contents
+npm notice 4.7kB README.md
+npm notice 1.8kB index.mjs
+npm notice 1.5kB package.json
+npm notice 4.1kB page/app.mjs
+npm notice 686B page/boot.js
+npm notice 807B page/index.html
+npm notice 1.9kB page/service.html
+npm notice 3.0kB page/style.css
+npm notice 9.3kB src/matcher.mjs
+npm notice 3.1kB src/page-bridge.mjs
+npm notice 1.1kB src/plugin-server-status.mjs
+npm notice 7.1kB src/protocols.mjs
+npm notice 13.8kB src/request-measurement.mjs
+npm notice 2.1kB src/request.hooks.mjs
+npm notice 7.2kB src/service-api.mjs
+npm notice 16.8kB src/stats-store.mjs
+npm notice 4.3kB src/stats-ui.mjs
+npm notice Tarball Details
+npm notice name: lobehub-plugin-session-date-filter
+npm notice version: 0.1.0
+npm notice filename: lobehub-plugin-session-date-filter-0.1.0.tgz
+npm notice package size: 23.7 kB
+npm notice unpacked size: 83.3 kB
+npm notice shasum: 09e91093a7b0908f9798b733a0549df1b1eb6afc
+npm notice integrity: sha512-DiZcTVa64hvJk[...]fp8G0uYyEIYqw==
+npm notice total files: 17
+npm notice
+lobehub-plugin-session-date-filter-0.1.0.tgz

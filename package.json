@@ -3,15 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "WIP standalone plugin: narrowly remove LobeHub Memory/Credentials session-date lines.",
-  "files": [
-    "src/",
-    "README.md",
-    "index.mjs"
-  ],
+  "description": "A narrowly scoped request hook and read-only session date statistics page.",
+  "files": ["src/", "page/", "README.md", "index.mjs"],
   "scripts": {
-    "test": "node --test test/matcher.test.mjs test/protocols.test.mjs test/manual-review-fix.test.mjs && bun test test/task2.test.mjs && bun run test/task2-integration.bun.mjs",
-    "test:node": "node --test test/matcher.test.mjs test/protocols.test.mjs test/manual-review-fix.test.mjs",
+    "test": "node --test test/matcher.test.mjs test/protocols.test.mjs test/manual-review-fix.test.mjs test/task3-ui.test.mjs test/task3-bridge.test.mjs && bun test test/task2.test.mjs test/task3-ui.test.mjs test/task3-bridge.test.mjs && bun run test/task2-integration.bun.mjs",
+    "test:node": "node --test test/matcher.test.mjs test/protocols.test.mjs test/manual-review-fix.test.mjs test/task3-ui.test.mjs test/task3-bridge.test.mjs",
     "test:task2": "bun test test/task2.test.mjs",
     "test:task2:integration": "bun run test/task2-integration.bun.mjs",
     "start:task2-test": "bun test test/task2.test.mjs"
@@ -23,9 +19,17 @@
     "./protocols": "./src/protocols.mjs",
     "./request.hooks": "./src/request.hooks.mjs",
     "./stats-store": "./src/stats-store.mjs",
-    "./service-api": "./src/service-api.mjs"
+    "./service-api": "./src/service-api.mjs",
+    "./stats-ui": "./src/stats-ui.mjs",
+    "./page-bridge": "./src/page-bridge.mjs"
   },
   "magpie": {
-    "hooks": "./src/request.hooks.mjs"
+    "hooks": "./src/request.hooks.mjs",
+    "page": {
+      "title": "Session Date Filter",
+      "titles": { "zh": "会话日期清理" },
+      "file": "page/index.html",
+      "service": { "port": 3479, "option": "sessionDateFilterPort" }
+    }
   }
 }

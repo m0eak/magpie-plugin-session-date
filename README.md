@@ -1,67 +1,48 @@
 # Session Date Filter / 会话日期清理
 
-> **开发中：阶段 2 / 3。** Task 1 纯函数过滤已通过审查；Task 2 request hook、SQLite 聚合存储和 loopback API 已完成本地验收，等待主代理独立审查。尚无真实页面、最终安装包或部署结论；Task2独立审查发现已做本地修复，等待复审；不要安装到生产环境。
+> **Task 3 本地实现完成，待独立最终验收。** 页面、manifest、只读 page.service 与本地安装包已在工程中实现；尚未通过真实宿主 loader/page 代理与浏览器端验收，未部署/发布，也不应视作已上线。
 
-此独立插件在 magpie 的公开异步请求 hook 中，对客户端请求中的 LobeHub Memory / Credentials 工具提示词执行窄范围变换：只移除经结构 wrapper 确认的 `<session_context>` 中完整英文 `Session date: Weekday, Month D, YYYY` 行。它不会扫描任意 system prompt、user/assistant/tool 内容、未知字段、图片或非文本块；不做协议转换。插件不保存请求正文、Key、模型、会话、provider、agent 或逐请求明细。浅层检查用于拒绝已知畸形/unsupported body，并独立决定未命中请求能否计量；合法未知扩展或部分多模态历史不会阻断对已识别 system/developer 文本的安全过滤，且未知无关payload不会被解析或改写。若确实删去目标日期行，该成功变换计入一次processed/matched与实际removed行数，即使无关payload令请求不可完整计量；无命中且不可计量的合法扩展请求不计数。合法常见user/assistant/tool历史、多模态块和Responses `previous_response_id`续聊可计量；已知结构畸形（例如缺必要role/content、错误字段类型或非法已知part）仍原样透传、不变换、不计数。该浅检查不是完整上游schema validator；filter只扫描规定的system/developer文字。
+此独立插件在 magpie 的公开异步请求 hook 中，对客户端请求中的 LobeHub Memory / Credentials 工具提示词执行窄范围变换：仅移除经结构 wrapper 确认的 `<session_context>` 中完整英文 `Session date: Weekday, Month D, YYYY` 行。它不扫描任意 system prompt、user/assistant/tool 内容、未知字段、图片或非文本块，不做协议转换；不保存请求正文、Key、模型、会话、provider、agent 或逐请求明细。合法未知扩展或部分多模态历史不会阻断对已识别 system/developer 文本的安全过滤；未知且无命中的无关payload不计量。合法Gemini已知媒体/code part可能增加unmatched统计口径，见独立复审记录。完全伪造同一 XML wrapper 的普通正文无法可靠地从真实工具模板语义区分，不承诺绝无误匹配。
 
-此操作只计提示词变换次数，不代表模型端缓存命中率，也不能保证节省 token 或改善缓存。其他动态提示词、路由和缓存 TTL 仍会影响结果。删除日期可能减弱 Memory 在消息缺少时间戳时的相对时间 fallback。
+## 插件页面
 
-由于正文中完全伪造与目标工具完全相同的 XML 包装无法可靠地从真实工具模板语义区分，匹配只做严格结构约束，并不承诺绝无误匹配。日期匹配也不是对整个 JSON 序列化字节完全不变；除删除的目标行与其行分隔符外，结构及非文本元数据应保持。
+sidebar页面“会话日期清理 / Session Date Filter”只显示聚合数与时间：累计移除行数、已处理/命中/未命中请求、统计开始/最近命中/更新时间，以及服务/存储状态。页面没有reset、独立启停、日统计、图表或请求内容查看。
 
-## 模块接口
+统计表示**提示词变换次数，不代表模型缓存命中率**。删除日期可能弱化 Memory 在消息缺少时间戳时的相对时间 fallback。其他动态提示词、路由与缓存 TTL 仍影响效果，插件不保证节省 token 或命中缓存。
 
-- `src/matcher.mjs`：`stripSessionDates(text) -> { text, removedLines }`
-- `src/protocols.mjs`：`filterRequest(body, protocol) -> { body, removedLines, supported }`
-- Task 2（本地实现、测试完成，待独立审查）：`src/request.hooks.mjs` 导出公开异步 `onRequest(body, ctx)`；`src/stats-store.mjs` 实现 Bun 内置 SQLite 聚合存储；`src/service-api.mjs` 提供 loopback 只读 API；`index.mjs` 是宿主 server 入口。
+初始 page iframe 只经宿主 bridge 握手后导航到 `window.magpie.service`，不从 `connect-src 'none'` 沙箱直接 fetch。service 文档重新连接宿主的 `hello` / `theme` / `visibility` 消息桥，以跟随主题和暂停隐藏页面的轮询。服务 token 只通过当前本地 service HTML 的每响应 CSP nonce bootstrap传递，之后作为 `/api/stats` Bearer token；没有读取宿主窗口 DOM或Cookie。`uiOrigin`严格验证并仅加入service HTML的 `connect-src`。统计服务仅绑定`127.0.0.1`，宿主 `page.service` 负责以页面token代理到后端；不写死生产URL/localhost，不移除token认证，不增加额外公开端口。`sessionDateFilterPort` 是manifest service option，缺省3479；需更改时应让host选项与服务监听端口保持一致。
 
-支持协议：chat、responses、anthropic、gemini。Chat 文本块使用 `type: text`，Responses 输入文本块使用 `type: input_text`；Responses easy input message 接受 `type` 缺省或显式 `message`，但显式未知 `type` 不会冒充message。只检查 system/developer 或协议顶层系统指令位置；Gemini 只检查对象形状 `systemInstruction.parts[].text`，并对错误元数据类型或混合未知 payload fail-open。合法Chat assistant tool-call可省略content或设为null；合法Responses消息可省略type。未知协议及已知畸形内容fail-open；不扫描其他对象的任意 `text` 字段。
+## 聚合 API 和统计语义
 
-## 聚合 API 契约（供 Task 3）
+服务只读：`GET /api/stats` 与 `GET /health`。统计schemaVersion=1，字段：`processedRequests`、`matchedRequests`、`removedLines`、`unmatchedRequests=processedRequests-matchedRequests`、UTC `startedAt` / `updatedAt` / `lastMatchedAt`、`status` 与 `persistence`。页面拒绝错误schema、非安全整数、负数、计数关系错误或非法UTC时间，不把其他JSON误画成零。首次API失败显示不可用而非零；之后失败保留最近成功值并标旧数据。监听启动失败不会影响请求过滤，但统计页面不可用。
 
-`GET /api/stats` 返回稳定 JSON：
+每个进入支持hook的可计量请求计一次；客户端新HTTP重试是另一次请求。命中计数表示至少实际删除了日期行；`removedLines`是删除的行数，与请求数不是同一口径。计数在当前host pending立即可见，其他host在事务提交后出现；正常flush约30秒，存储锁/故障会延迟。进程异常退出或host shutdown时，未flush增量可能丢失；不承诺零丢失、跨进程exactly-once或实际缓存收益。
 
-```json
-{
-  "schemaVersion": 1,
-  "status": "ok",
-  "stats": {
-    "processedRequests": 1,
-    "matchedRequests": 1,
-    "removedLines": 1,
-    "unmatchedRequests": 0,
-    "startedAt": "2026-11-04T00:00:00.000Z",
-    "updatedAt": "2026-11-04T00:00:00.000Z",
-    "lastMatchedAt": "2026-11-04T00:00:00.000Z"
-  },
-  "persistence": "SQLite WAL; this host includes local pending counters; other hosts appear after commit. Normal flush interval is about 30 seconds; persistent lock failures may delay visibility, and unflushed local counters may be lost on process crash."
-}
+## 安装与卸载（本地包，不发布）
+
+工程内tarball名：`lobehub-plugin-session-date-filter-0.1.0.tgz`。按本地绝对路径安装到测试宿主：
+
+```sh
+magpie plugin add /absolute/path/to/lobehub-plugin-session-date-filter-0.1.0.tgz
 ```
 
-若loopback统计listener不能启动，公开hook依然加载并过滤，但统计API无法访问；server状态会报`unavailable/listener-unavailable`并向宿主发一次固定warn。未来Task3必须明显显示“统计服务不可用”，不可误显示为正常空统计。`unmatchedRequests` 是 `processedRequests - matchedRequests`。尚未处理任何有效请求时三个时间字段为 `null`。未曾发生命中时 `lastMatchedAt` 为 `null`。`GET /health` 是可选只读健康查询。服务只监听 `127.0.0.1`，只接受 GET 和必要的 OPTIONS 预检，固定路径，不允许 URL 选择文件路径。sandbox `Origin: null` 与同源 loopback only；页面访问必须经宿主代理 token，不可公开映射服务端口。Task 2 不声明空 page；Task 3 提供真实 HTML 后才应声明 `page.service` 并用 `magpie.service`。
+移除：
 
-SQLite WAL with write-ahead initialization and serialized atomic aggregate updates. Each supported request updates in-memory counters only; a periodic (~30 second) background flush uses a 2 ms SQLite busy wait followed by capped exponential retry scheduling (up to 2 seconds per retry window). A request transform never waits for a database lock. A failed transaction retains pending deltas and reports `degraded`; later cycle/retry can recover. Same-process snapshots include local pending counts; other plugin hosts appear only after commit. The 30-second interval is a normal-operation target, not a guarantee during persistent storage lock/failure. Crash or host shutdown while pending deltas remain may lose this process's uncommitted window; graceful close attempts one bounded flush but cannot guarantee persistence during a continuing lock.
+```sh
+magpie plugin rm session-date-filter
+```
 
+宿主源码中 `plugin add <name | npm | git | path>`、`plugin rm <name>` 已核实，但本轮没有实际运行安装；本机tarball路径spec由独立验收确认。`package.json` 的 `private: true` 不影响本地 `npm pack`；禁止 `npm publish`。
 
-
-## Iteration status
-
-Task 2 request hook、SQLite aggregate store 与 loopback API 已通过本地完整自动化验收；fix1根据独立审查新增浅层可计量结构检查、预检path/query allowlist与listener部分降级，当前等待独立复审。插件主机依 `directory` 参数在其配置根写入固定 `session-date-filter/stats.sqlite`，不会写入包目录/`plugins.json`。页面尚未实现，manifest 暂不声明空 page 或 `page.service`。不要安装到生产环境。
-
-纯逻辑及 Task 1 回归：
+## 开发与验证
 
 ```sh
 npm test
+node --check src/service-api.mjs
+node --check src/stats-ui.mjs
+node --check src/page-bridge.mjs
+node --check page/boot.js
+node --check page/app.mjs
 ```
 
-Task 2 Bun/SQLite tests:
-
-```sh
-bun test test/task2.test.mjs
-bun run test:task2:integration
-```
-
-实现计划、批准边界、宿主契约证据与当前阶段状态见：
-- `docs/superpowers/specs/2026-11-04-session-date-filter-design.md`
-- `docs/superpowers/plans/2026-11-04-session-date-filter-plan.md`
-- `.superpowers/sdd/session-date-filter/task-2-brief.md`
-- `.superpowers/sdd/session-date-filter/progress.md`
+完整报告、测试日志、tarball SHA256、变更/patch及未验证项见 `.superpowers/sdd/session-date-filter/task-3-report.md`。计划与规格见 `docs/superpowers/plans/2026-11-04-session-date-filter-plan.md` 与 `docs/superpowers/specs/2026-11-04-session-date-filter-design.md`。

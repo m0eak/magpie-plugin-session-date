@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>会话日期清理 / Session Date Filter</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./app.mjs"></script>
+</head>
+<body>
+  <main>
+    <header><div><h1>会话日期清理 <span aria-hidden="true">/</span> Session Date Filter</h1><p class="subtitle">只读聚合统计 · Read-only aggregate statistics</p></div><button id="refresh" type="button">手动刷新</button></header>
+    <div class="status-row"><p id="status" role="status" aria-live="polite" data-state="loading">正在加载…</p></div>
+    <p id="stale" role="alert" aria-live="assertive"></p>
+    <section class="hero" aria-label="累计移除行数"><strong id="total">—</strong><span>累计移除行数 / lines removed</span></section>
+    <section class="metrics" aria-label="请求统计"><div class="metric"><span>已处理请求 / Processed</span><strong id="processed">—</strong></div><div class="metric"><span>命中请求 / Matched</span><strong id="matched">—</strong></div><div class="metric"><span>未命中请求 / Unmatched</span><strong id="unmatched">—</strong></div></section>
+    <dl><dt>统计起始 / Started</dt><dd id="started">暂无</dd><dt>最近命中 / Last matched</dt><dd id="lastMatched">暂无</dd><dt>更新时间 / Updated</dt><dd id="updated">暂无</dd></dl>
+    <p class="note">统计为提示词变换次数，不代表模型缓存命中率。</p>
+    <p class="note">删除日期可能影响 Memory 在消息缺少时间戳时的相对时间理解。</p>
+    <p class="note">同一主机待提交计数可见；其他主机通常在约 30 秒提交后可见。持续存储故障可延迟更久，进程崩溃可能丢失尚未提交计数。</p>
+  </main>
+</body>
+</html>

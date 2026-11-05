@@ -1,0 +1,502 @@
+
+> lobehub-plugin-session-date-filter@0.1.0 test
+> node --test test/matcher.test.mjs test/protocols.test.mjs test/manual-review-fix.test.mjs test/task3-ui.test.mjs test/task3-bridge.test.mjs && bun test test/task2.test.mjs test/task3-ui.test.mjs test/task3-bridge.test.mjs && bun run test/task2-integration.bun.mjs
+
+TAP version 13
+# Subtest: public hook filters Chat system date with assistant tool_calls missing content
+ok 1 - public hook filters Chat system date with assistant tool_calls missing content
+  ---
+  duration_ms: 5.047994
+  type: 'test'
+  ...
+# Subtest: public hook filters Responses easy input messages without type
+ok 2 - public hook filters Responses easy input messages without type
+  ---
+  duration_ms: 1.279622
+  type: 'test'
+  ...
+# Subtest: public hook filters Gemini system date beside recognized image and file parts
+ok 3 - public hook filters Gemini system date beside recognized image and file parts
+  ---
+  duration_ms: 1.444639
+  type: 'test'
+  ...
+# Subtest: public hook filters known system text despite unrelated unknown user payload and counts the transform
+ok 4 - public hook filters known system text despite unrelated unknown user payload and counts the transform
+  ---
+  duration_ms: 1.082811
+  type: 'test'
+  ...
+# Subtest: public hook does not count valid unknown unmatched payloads
+ok 5 - public hook does not count valid unknown unmatched payloads
+  ---
+  duration_ms: 0.523077
+  type: 'test'
+  ...
+# Subtest: public hook filters Responses system text but leaves an unknown typed item untouched
+ok 6 - public hook filters Responses system text but leaves an unknown typed item untouched
+  ---
+  duration_ms: 0.744944
+  type: 'test'
+  ...
+# Subtest: public hook leaves malformed request wholly unchanged and uncounted
+ok 7 - public hook leaves malformed request wholly unchanged and uncounted
+  ---
+  duration_ms: 0.713203
+  type: 'test'
+  ...
+# Subtest: removes the date only inside the Memory session context
+ok 8 - removes the date only inside the Memory session context
+  ---
+  duration_ms: 4.407094
+  type: 'test'
+  ...
+# Subtest: removes the date only inside the Credentials session context
+ok 9 - removes the date only inside the Credentials session context
+  ---
+  duration_ms: 0.450236
+  type: 'test'
+  ...
+# Subtest: preserves line indentation, trailing horizontal space, and CRLF bytes
+ok 10 - preserves line indentation, trailing horizontal space, and CRLF bytes
+  ---
+  duration_ms: 0.438458
+  type: 'test'
+  ...
+# Subtest: removes multiple matching lines in multiple supported tools
+ok 11 - removes multiple matching lines in multiple supported tools
+  ---
+  duration_ms: 0.543342
+  type: 'test'
+  ...
+# Subtest: keeps identical date text outside the exact tools wrapper
+ok 12 - keeps identical date text outside the exact tools wrapper
+  ---
+  duration_ms: 0.3288
+  type: 'test'
+  ...
+# Subtest: preserves skipped wrappers before a later matching wrapper exactly
+ok 13 - preserves skipped wrappers before a later matching wrapper exactly
+  ---
+  duration_ms: 0.313213
+  type: 'test'
+  ...
+# Subtest: fails open when a blockquote closing tag is the only outer tools close
+ok 14 - fails open when a blockquote closing tag is the only outer tools close
+  ---
+  duration_ms: 0.354287
+  type: 'test'
+  ...
+# Subtest: fails open when a fenced closing tag is the only outer tools close
+ok 15 - fails open when a fenced closing tag is the only outer tools close
+  ---
+  duration_ms: 0.357014
+  type: 'test'
+  ...
+# Subtest: fails open for a target wrapper nested inside an unterminated outer tools tag
+ok 16 - fails open for a target wrapper nested inside an unterminated outer tools tag
+  ---
+  duration_ms: 2.434259
+  type: 'test'
+  ...
+# Subtest: fails open for multiple target wrappers nested inside a complete non-target tools tag
+ok 17 - fails open for multiple target wrappers nested inside a complete non-target tools tag
+  ---
+  duration_ms: 0.759504
+  type: 'test'
+  ...
+# Subtest: fails open on malformed tools regions before or after otherwise legal wrappers
+ok 18 - fails open on malformed tools regions before or after otherwise legal wrappers
+  ---
+  duration_ms: 0.50366
+  type: 'test'
+  ...
+# Subtest: fails open for nested closes and unmatched tools closing tags
+ok 19 - fails open for nested closes and unmatched tools closing tags
+  ---
+  duration_ms: 0.320782
+  type: 'test'
+  ...
+# Subtest: filters multiple flat valid tools wrappers while preserving every wrapper boundary
+ok 20 - filters multiple flat valid tools wrappers while preserving every wrapper boundary
+  ---
+  duration_ms: 0.318112
+  type: 'test'
+  ...
+# Subtest: preserves an unterminated wrapper after a matching wrapper exactly
+ok 21 - preserves an unterminated wrapper after a matching wrapper exactly
+  ---
+  duration_ms: 0.245174
+  type: 'test'
+  ...
+# Subtest: preserves skipped wrappers between two matching wrappers exactly
+ok 22 - preserves skipped wrappers between two matching wrappers exactly
+  ---
+  duration_ms: 0.348192
+  type: 'test'
+  ...
+# Subtest: preserves multiple skipped wrappers and ordinary text before a match
+ok 23 - preserves multiple skipped wrappers and ordinary text before a match
+  ---
+  duration_ms: 0.248427
+  type: 'test'
+  ...
+# Subtest: returns a zero-match input byte-for-byte unchanged after multiple skipped candidates
+ok 24 - returns a zero-match input byte-for-byte unchanged after multiple skipped candidates
+  ---
+  duration_ms: 0.197055
+  type: 'test'
+  ...
+# Subtest: keeps a fake target tree nested beneath a non-target tool untouched
+ok 25 - keeps a fake target tree nested beneath a non-target tool untouched
+  ---
+  duration_ms: 0.22999
+  type: 'test'
+  ...
+# Subtest: does not remove a date when a target tools wrapper is nested in a non-target tools block
+ok 26 - does not remove a date when a target tools wrapper is nested in a non-target tools block
+  ---
+  duration_ms: 0.249123
+  type: 'test'
+  ...
+# Subtest: does not treat a similarly named non-target tool as a supported wrapper
+ok 27 - does not treat a similarly named non-target tool as a supported wrapper
+  ---
+  duration_ms: 0.203946
+  type: 'test'
+  ...
+# Subtest: does not broaden to a tools wrapper with a different description
+ok 28 - does not broaden to a tools wrapper with a different description
+  ---
+  duration_ms: 0.158683
+  type: 'test'
+  ...
+# Subtest: does not remove dates from ordinary system prompt text without wrappers
+ok 29 - does not remove dates from ordinary system prompt text without wrappers
+  ---
+  duration_ms: 0.137623
+  type: 'test'
+  ...
+# Subtest: does not remove quoted or fenced date examples inside the target area
+ok 30 - does not remove quoted or fenced date examples inside the target area
+  ---
+  duration_ms: 0.22906
+  type: 'test'
+  ...
+# Subtest: does not remove dates from an indented Markdown blockquote continuation
+ok 31 - does not remove dates from an indented Markdown blockquote continuation
+  ---
+  duration_ms: 0.16279
+  type: 'test'
+  ...
+# Subtest: does not remove lines wrapped in same-line backtick or tilde fences
+ok 32 - does not remove lines wrapped in same-line backtick or tilde fences
+  ---
+  duration_ms: 0.369322
+  type: 'test'
+  ...
+# Subtest: does not recognize a target wrapper when the outer template is inside a fenced code block
+ok 33 - does not recognize a target wrapper when the outer template is inside a fenced code block
+  ---
+  duration_ms: 0.190435
+  type: 'test'
+  ...
+# Subtest: does not remove current-date, ISO-date, non-English, or malformed calendar lines
+ok 34 - does not remove current-date, ISO-date, non-English, or malformed calendar lines
+  ---
+  duration_ms: 0.229449
+  type: 'test'
+  ...
+# Subtest: keeps tags split by line indentation in the same XML tree valid
+ok 35 - keeps tags split by line indentation in the same XML tree valid
+  ---
+  duration_ms: 0.184629
+  type: 'test'
+  ...
+# Subtest: removes a matching line while preserving unrelated line separators exactly
+ok 36 - removes a matching line while preserving unrelated line separators exactly
+  ---
+  duration_ms: 0.240134
+  type: 'test'
+  ...
+# Subtest: does not throw on malformed or unclosed prompt wrappers
+ok 37 - does not throw on malformed or unclosed prompt wrappers
+  ---
+  duration_ms: 0.179959
+  type: 'test'
+  ...
+# Subtest: leaves a date untouched when only part of its wrapper is present
+ok 38 - leaves a date untouched when only part of its wrapper is present
+  ---
+  duration_ms: 0.240266
+  type: 'test'
+  ...
+# Subtest: is idempotent after removing a session date line
+ok 39 - is idempotent after removing a session date line
+  ---
+  duration_ms: 0.424281
+  type: 'test'
+  ...
+# Subtest: passes through non-string inputs without scanning them
+ok 40 - passes through non-string inputs without scanning them
+  ---
+  duration_ms: 0.221941
+  type: 'test'
+  ...
+# Subtest: supports valid early years without Date.UTC year remapping
+ok 41 - supports valid early years without Date.UTC year remapping
+  ---
+  duration_ms: 0.485551
+  type: 'test'
+  ...
+# Subtest: removes a dynamically different valid date without hard-coding one day
+ok 42 - removes a dynamically different valid date without hard-coding one day
+  ---
+  duration_ms: 0.454128
+  type: 'test'
+  ...
+# Subtest: filters a complete wrapper before a protected blockquote close suffix
+ok 43 - filters a complete wrapper before a protected blockquote close suffix
+  ---
+  duration_ms: 0.330396
+  type: 'test'
+  ...
+# Subtest: filters a complete wrapper before a protected fenced close suffix
+ok 44 - filters a complete wrapper before a protected fenced close suffix
+  ---
+  duration_ms: 0.248121
+  type: 'test'
+  ...
+# Subtest: ignores a protected close before a later complete wrapper
+ok 45 - ignores a protected close before a later complete wrapper
+  ---
+  duration_ms: 0.250934
+  type: 'test'
+  ...
+# Subtest: ignores protected opening and closing examples between flat wrappers
+ok 46 - ignores protected opening and closing examples between flat wrappers
+  ---
+  duration_ms: 0.331315
+  type: 'test'
+  ...
+# Subtest: ignores protected opening and closing examples while a real wrapper is active
+ok 47 - ignores protected opening and closing examples while a real wrapper is active
+  ---
+  duration_ms: 0.248694
+  type: 'test'
+  ...
+# Subtest: filters chat system and developer string contents only
+ok 48 - filters chat system and developer string contents only
+  ---
+  duration_ms: 5.195109
+  type: 'test'
+  ...
+# Subtest: filters only explicit chat text content blocks and preserves metadata
+ok 49 - filters only explicit chat text content blocks and preserves metadata
+  ---
+  duration_ms: 1.364821
+  type: 'test'
+  ...
+# Subtest: treats Chat input_text as an unsupported block while retaining source identity
+ok 50 - treats Chat input_text as an unsupported block while retaining source identity
+  ---
+  duration_ms: 0.222535
+  type: 'test'
+  ...
+# Subtest: leaves malformed chat blocks fail-open while processing a valid sibling
+ok 51 - leaves malformed chat blocks fail-open while processing a valid sibling
+  ---
+  duration_ms: 0.480819
+  type: 'test'
+  ...
+# Subtest: filters Responses instructions and system/developer message input
+ok 52 - filters Responses instructions and system/developer message input
+  ---
+  duration_ms: 0.999543
+  type: 'test'
+  ...
+# Subtest: filters Anthropic top-level system text and explicit text blocks only
+ok 53 - filters Anthropic top-level system text and explicit text blocks only
+  ---
+  duration_ms: 0.419071
+  type: 'test'
+  ...
+# Subtest: filters Gemini systemInstruction string and legal text parts only
+ok 54 - filters Gemini systemInstruction string and legal text parts only
+  ---
+  duration_ms: 0.727344
+  type: 'test'
+  ...
+# Subtest: leaves Gemini systemInstruction string and unknown shapes unchanged
+ok 55 - leaves Gemini systemInstruction string and unknown shapes unchanged
+  ---
+  duration_ms: 0.365207
+  type: 'test'
+  ...
+# Subtest: leaves Gemini text parts with malformed known metadata untouched
+ok 56 - leaves Gemini text parts with malformed known metadata untouched
+  ---
+  duration_ms: 0.695216
+  type: 'test'
+  ...
+# Subtest: returns the original body reference for known protocol requests without a match
+ok 57 - returns the original body reference for known protocol requests without a match
+  ---
+  duration_ms: 0.611942
+  type: 'test'
+  ...
+# Subtest: returns an unsupported protocol unchanged without guessing
+ok 58 - returns an unsupported protocol unchanged without guessing
+  ---
+  duration_ms: 0.383344
+  type: 'test'
+  ...
+# Subtest: treats malformed bodies and fields as supported-protocol fail-open
+ok 59 - treats malformed bodies and fields as supported-protocol fail-open
+  ---
+  duration_ms: 0.314282
+  type: 'test'
+  ...
+# Subtest: does not mutate the original request or nested cache metadata
+ok 60 - does not mutate the original request or nested cache metadata
+  ---
+  duration_ms: 0.607233
+  type: 'test'
+  ...
+# Subtest: counts multiple blocks but does not join text across blocks
+ok 61 - counts multiple blocks but does not join text across blocks
+  ---
+  duration_ms: 0.379787
+  type: 'test'
+  ...
+# Subtest: preserves chat and Responses cache metadata on changed text blocks
+ok 62 - preserves chat and Responses cache metadata on changed text blocks
+  ---
+  duration_ms: 0.422388
+  type: 'test'
+  ...
+# Subtest: does not join wrappers across adjacent protocol content blocks
+ok 63 - does not join wrappers across adjacent protocol content blocks
+  ---
+  duration_ms: 0.216052
+  type: 'test'
+  ...
+# Subtest: keeps empty text blocks and removes only the line inside each matched block
+ok 64 - keeps empty text blocks and removes only the line inside each matched block
+  ---
+  duration_ms: 0.253678
+  type: 'test'
+  ...
+# Subtest: bridge accepts only parent handshake and tracks theme plus host visibility
+ok 65 - bridge accepts only parent handshake and tracks theme plus host visibility
+  ---
+  duration_ms: 3.080981
+  type: 'test'
+  ...
+# Subtest: bridge timeout fails closed and tears down its listener
+ok 66 - bridge timeout fails closed and tears down its listener
+  ---
+  duration_ms: 7.404296
+  type: 'test'
+  ...
+# Subtest: stats schema accepts consistent counts and nullable UTC timestamps
+ok 67 - stats schema accepts consistent counts and nullable UTC timestamps
+  ---
+  duration_ms: 2.122464
+  type: 'test'
+  ...
+# Subtest: stats schema rejects alien, malformed, unsafe and inconsistent data
+ok 68 - stats schema rejects alien, malformed, unsafe and inconsistent data
+  ---
+  duration_ms: 1.143268
+  type: 'test'
+  ...
+# Subtest: poller marks initial network failure unavailable, keeps stale success, times out without overlap and pauses when hidden
+ok 69 - poller marks initial network failure unavailable, keeps stale success, times out without overlap and pauses when hidden
+  ---
+  duration_ms: 16.907118
+  type: 'test'
+  ...
+# Subtest: manifest and initial page use the real page bridge service handoff
+ok 70 - manifest and initial page use the real page bridge service handoff
+  ---
+  duration_ms: 8.274257
+  type: 'test'
+  ...
+# Subtest: service serves fixed assets and read-only authenticated API with proxy CSP
+ok 71 - service serves fixed assets and read-only authenticated API with proxy CSP # SKIP
+  ---
+  duration_ms: 0.516252
+  type: 'test'
+  ...
+1..71
+# tests 71
+# suites 0
+# pass 70
+# fail 0
+# cancelled 0
+# skipped 1
+# todo 0
+# duration_ms 164.443711
+bun test v1.3.10 (30e609e0)
+
+test/task2.test.mjs:
+(pass) onRequest filters a supported body without mutating it and records one matched request [55.00ms]
+(pass) onRequest counts each supported protocol request once [14.00ms]
+(pass) request measurement leaves malformed chat-empty-member uncounted and unchanged [10.00ms]
+(pass) request measurement leaves malformed chat-null-member uncounted and unchanged [8.00ms]
+(pass) request measurement leaves malformed chat-missing-role uncounted and unchanged [9.00ms]
+(pass) request measurement leaves malformed chat-missing-content uncounted and unchanged [10.00ms]
+(pass) request measurement leaves malformed chat-bad-content-type uncounted and unchanged [7.00ms]
+(pass) request measurement leaves malformed chat-empty-text-part uncounted and unchanged [8.00ms]
+(pass) request measurement leaves malformed responses-empty-member uncounted and unchanged [8.00ms]
+(pass) request measurement leaves malformed responses-message-missing-role uncounted and unchanged [8.00ms]
+(pass) request measurement leaves malformed responses-empty-text-part uncounted and unchanged [9.00ms]
+(pass) request measurement leaves malformed responses-bad-instructions uncounted and unchanged [8.00ms]
+(pass) request measurement leaves malformed anthropic-invalid-role uncounted and unchanged [8.00ms]
+(pass) request measurement leaves malformed anthropic-empty-member uncounted and unchanged [7.00ms]
+(pass) request measurement leaves malformed anthropic-empty-text-part uncounted and unchanged [7.00ms]
+(pass) request measurement leaves malformed gemini-empty-content uncounted and unchanged [7.00ms]
+(pass) request measurement leaves malformed gemini-empty-part uncounted and unchanged [8.00ms]
+(pass) request measurement leaves malformed gemini-bad-role uncounted and unchanged [8.00ms]
+(pass) request measurement accepts valid chat/Responses/Anthropic/Gemini tool histories and continuations [47.00ms]
+(pass) unknown nested content parts pass through but are not counted as measurable [7.00ms]
+(pass) onRequest returns undefined for an unchanged supported body and increments unmatched once [8.00ms]
+(pass) onRequest ignores unsupported and malformed request inputs without counting them [8.00ms]
+(pass) onRequest fail-opens an unexpected matcher error without logging or leaking it [10.00ms]
+(pass) parallel requests aggregate exact processed, matched and removed-line counts [12.00ms]
+LOCK_METRICS={"hookMs":0.181,"firstFlushMs":11.098,"heartbeatDelayMs":24.24,"autoRecoveryMs":8.708}
+(pass) lock failures keep pending, yield the event loop and retry without manual flush [109.00ms]
+(pass) snapshot includes same-host pending data once and concurrent record during flush survives [10.00ms]
+(pass) flush followed by snapshot does not double count pending data [10.00ms]
+(pass) scheduled flush uses an injectable scheduler with the intended 30 second period [11.00ms]
+MULTIPROCESS_ROUNDS=[{"round":0,"fresh":true,"childStatuses":["ok","ok","ok","ok"],"stats":{"processedRequests":100,"matchedRequests":52,"removedLines":52}},{"round":1,"fresh":true,"childStatuses":["ok","ok","ok","ok"],"stats":{"processedRequests":100,"matchedRequests":52,"removedLines":52}},{"round":2,"fresh":true,"childStatuses":["ok","ok","ok","ok"],"stats":{"processedRequests":100,"matchedRequests":52,"removedLines":52}},{"round":3,"fresh":true,"childStatuses":["ok","ok","ok","ok"],"stats":{"processedRequests":100,"matchedRequests":52,"removedLines":52}},{"round":4,"fresh":true,"childStatuses":["ok","ok","ok","ok"],"stats":{"processedRequests":100,"matchedRequests":52,"removedLines":52}},{"round":5,"fresh":false,"childStatuses":["ok","ok","ok","ok"],"stats":{"processedRequests":100,"matchedRequests":52,"removedLines":52}},{"round":6,"fresh":false,"childStatuses":["ok","ok","ok","ok"],"stats":{"processedRequests":100,"matchedRequests":52,"removedLines":52}},{"round":7,"fresh":false,"childStatuses":["ok","ok","ok","ok"],"stats":{"processedRequests":100,"matchedRequests":52,"removedLines":52}}]
+(pass) four fresh database first-open races and three seeded writer races merge exact increments [569.00ms]
+(pass) store reopens committed stats and preserves owner-only database permissions [71.00ms]
+SEEDED_WRITER_STATUSES=["ok","ok","ok","ok"]
+(pass) seeded database four-writer competition preserves each committed batch [69.00ms]
+(pass) store reopens committed stats and preserves owner-only database permissions [10.00ms]
+(pass) stats singleton uses host directory and ignores reconfiguration attempts [10.00ms]
+(pass) corrupt databases and unknown schema degrade without overwrite [17.00ms]
+(pass) invalid store directory degrades safely and does not block request processing [1.00ms]
+(pass) HTTP service is read-only, allows only null/same origin and hides storage errors [15.00ms]
+(pass) service fails safely when database is unavailable and emits only generic degraded status [3.00ms]
+(pass) service listener failures are typed only for known bind errors and unknown startup errors propagate [2.00ms]
+(pass) plugin server propagates unknown listener and snapshot failures without misclassification or leaks [172.00ms]
+(pass) plugin server bind failure degrades statistics but keeps the request hook loaded [12.00ms]
+
+test/task3-bridge.test.mjs:
+(pass) bridge accepts only parent handshake and tracks theme plus host visibility [1.00ms]
+(pass) bridge timeout fails closed and tears down its listener [5.00ms]
+
+test/task3-ui.test.mjs:
+(pass) stats schema accepts consistent counts and nullable UTC timestamps
+(pass) stats schema rejects alien, malformed, unsafe and inconsistent data
+(pass) poller marks initial network failure unavailable, keeps stale success, times out without overlap and pauses when hidden [17.00ms]
+(pass) manifest and initial page use the real page bridge service handoff [2.00ms]
+(pass) service serves fixed assets and read-only authenticated API with proxy CSP [4.00ms]
+
+ 47 pass
+ 0 fail
+Ran 47 tests across 3 files. [1.52s]
+Hook, read-only HTTP service, owner-only permissions and four-process SQLite aggregate passed.
