@@ -6,7 +6,7 @@
 
 - 分支：`feature/session-date-filter`
 - 固定 BASE：`8acf8a81dfc1cbe077272295752d2d5fc60cb7d0`
-- 源码与测试实施提交：源码/测试提交 `901d12e0a656527dd20de7e188263f995c008299`；最终交接HEAD：`7ec082cb0afba6e35af97b971249ed642ec02403`。
+- 源码与测试实施提交：`901d12e0a656527dd20de7e188263f995c008299`；本地报告/交接记录单独提交，BASE..最终HEAD见`review.patch`头部。
 - 仅变更：`src/matcher.mjs`、`test/matcher.test.mjs`、README过滤边界文案，以及本轮报告/brief/progress追加。本轮没有修改页面、协议、hook、计量、SQLite或service实现。
 - 第三阶段原有未提交 `progress.md` 和 `task-3-report.md` 改动保留；没有重新格式化或覆盖。工程内历史未跟踪报告、日志、fixtures、DB、旧包均保留。未操作参考宿主仓库/SSH/生产配置/密钥/真实提示词/模型；未部署、发布、push或重打最终包。
 
