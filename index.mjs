@@ -1,5 +1,5 @@
 import { configureStatsStore } from './src/stats-store.mjs';
-import { createService } from './src/service-api.mjs';
+import { createService, ServiceListenError } from './src/service-api.mjs';
 import { getPluginServerStatus, initializePluginServer } from './src/plugin-server-status.mjs';
 
 let active;
@@ -18,8 +18,8 @@ export default {
     let service;
     try {
       service = createService({ store, port: serverPort(options) });
-      initializePluginServer({ state: 'available', listenerAvailable: true, storageStatus: store.snapshot().status, reason: null });
-    } catch {
+    } catch (error) {
+      if (!(error instanceof ServiceListenError)) throw error;
       initializePluginServer({ state: 'unavailable', listenerAvailable: false, storageStatus: store.snapshot().status, reason: 'listener-unavailable' });
       try {
         const log = input?.client?.app?.log;
@@ -28,6 +28,14 @@ export default {
         }
       } catch {
         // Logging failures cannot disable the gateway request hook.
+      }
+    }
+    if (service) {
+      try {
+        initializePluginServer({ state: 'available', listenerAvailable: true, storageStatus: store.snapshot().status, reason: null });
+      } catch (error) {
+        try { await service.stop(); } catch { /* Best-effort cleanup for this owned listener only. */ }
+        throw error;
       }
     }
     active = { service, store };

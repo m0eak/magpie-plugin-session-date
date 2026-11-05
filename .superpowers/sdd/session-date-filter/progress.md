@@ -22,8 +22,8 @@
 
 
 ## Task 2 — request hook、统计存储与只读 service API
-- 状态：fix1实现已有原始完整测试证据并已接手核对；交接状态BLOCKED、等待主代理处理I3异常边界后再独立复审。不宣称review clean，未push/部署。
-- 当前Task2交付基线为 `2f1a01542195bf4a07b10b3b2059c025fc9c94f4`，fix1本地提交为 `c3cf88c3102e86d937955d8e064a7307b07597e2`，复审补丁 `task-2-fix-1-review.patch` 已生成。独立复审仍待进行；接手发现`index.mjs` I3 catch会吞未知程序异常，超出“仅捕获预期服务故障”的裁定，具体见`task-2-report.md` Takeover。历史probe/报告/DB/WAL等untracked证据原位保留，未清理。
+- 状态：fix2已实现、定向与全套测试通过并本地提交，待独立复审；不宣称review clean，不push/部署。
+- 当前Task2交付基线为 `2f1a01542195bf4a07b10b3b2059c025fc9c94f4`；fix1为`c3cf88c3102e86d937955d8e064a7307b07597e2`，fix2前HEAD为`5ced8e0b8b55954e962dd733c1d96a6580e7e44d`。fix2本地提交及完整复审补丁均在Task2报告中登记。历史probe/报告/DB/WAL等untracked证据原位保留，未清理。
 - 根因沿用完整诊断 `.superpowers/sdd/session-date-filter/task-2-diagnosis/diagnosis.md`：deferred seed INSERT竞争导致first-open丢pending；旧5秒busy handler同步卡event loop；Node默认发现混跑Bun测试/fixture。本轮新red：`task-2-recovery-red-baseline.log`，Bun 12/13、exit1，失败为真实并发writer SQLITE_BUSY。
 - 修复：IMMEDIATE schema+seed事务；初始化WAL/schema/seed busy上限10ms，运行期flush busy上限2ms；request hook经microtask只做内存计数。后台有限退避（25/75/200/500/1000ms，总窗口2秒、timer unref），失败保留pending，事务提交后只消费提交快照；成功边界为事务commit，无snapshot重提delta。坏schema/数据范围异常不静默清零。详情/边界见 `task-2-report.md` 和 `task-2-recovery-brief.md`。
 - 宿主只读契约（参考HEAD `50265256ba56ac164a680da0689e1c6d90dac471`）：`host.js:1323` 调用 `fn(input,p.options)`；`input.directory=settings.Dir()` 见 `host.go:1133-1160`。插件服务端第二参数才是package options。PluginHost reload由Go关闭Bun子进程（`host.go:538-560,904-925`），不发现插件dispose回调；故不宣称强制stop能等异步flush。page.service需真实page，Task2无page entry。

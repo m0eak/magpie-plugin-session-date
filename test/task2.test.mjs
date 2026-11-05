@@ -586,6 +586,42 @@ test('service fails safely when database is unavailable and emits only generic d
   }
 });
 
+test('service listener failures are typed only for known bind errors and unknown startup errors propagate', async () => {
+  const dir = await freshDir('service-listen-errors');
+  const store = new StatsStore({ dataDir: dir, autoFlush: false });
+  const owner = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch: () => new Response('owned') });
+  try {
+    assert.throws(() => createService({ store, port: -1 }), TypeError, 'parameter validation stays outside the listener error classification');
+    assert.throws(() => createService({ store, port: owner.port }), (error) => {
+      assert.equal(error?.name, 'ServiceListenError');
+      assert.equal(error?.reasonCode, 'address-in-use');
+      assert.equal(error?.message, 'Statistics listener could not be started.');
+      assert.equal(error.message.includes(String(owner.port)), false);
+      return true;
+    });
+  } finally {
+    owner.stop(true);
+    await store.close();
+  }
+});
+
+test('plugin server propagates unknown listener and snapshot failures without misclassification or leaks', async () => {
+  const fixture = join(root, 'test', 'fixtures', 'server-error-boundaries.bun.mjs');
+  for (const scenario of ['unknown-error', 'type-error', 'snapshot-error', 'status-error']) {
+    const result = await new Promise((resolveRun, reject) => {
+      const proc = spawn('bun', [fixture, scenario], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+      let stdout = '';
+      let stderr = '';
+      proc.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; });
+      proc.stderr.setEncoding('utf8').on('data', (chunk) => { stderr += chunk; });
+      proc.once('error', reject);
+      proc.once('exit', (code) => resolveRun({ code, stdout, stderr }));
+    });
+    assert.equal(result.code, 0, `${scenario} fixture failed:\n${result.stdout}\n${result.stderr}`);
+    assert.match(result.stdout, new RegExp(`${scenario}: passed`));
+  }
+});
+
 test('plugin server bind failure degrades statistics but keeps the request hook loaded', async () => {
   const entry = await import('../index.mjs');
   const priorStore = resetStatsStoreForTests();

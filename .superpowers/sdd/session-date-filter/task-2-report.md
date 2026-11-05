@@ -159,9 +159,23 @@ export default { id:'session-date-filter', async server(input, options) { ... } 
 - 最终完整suite锁测量原始值：hook 0.208ms；首次flush Promise 11.227ms（其同步SQLite busy等待上限仍2ms，不能把Promise全时长当event-loop阻塞）；20ms heartbeat实测24.155ms；release到自动恢复观测8.136ms（含轮询）。一次本机合成样本，非性能保证。旧Task2事务、WAL与有限短锁重试未重写。
 - 本轮唯一新增运行模块为`src/request-measurement.mjs`、`src/plugin-server-status.mjs`及相应测试；不引入依赖，不做Task3/page，不修改DB schema。页面端需把listener unavailable与store degraded分开显示。
 
+
+## Fix2 — I3 typed listener failure boundary (2026-11-05)
+
+- 原因：fix1的`index.mjs`把整个`createService()`和status/snapshot初始化置于宽泛catch内，未知TypeError/程序异常会被错报为listener不可用并被吞掉。fix2将降级边界收窄至真实`Bun.serve()`绑定边界。
+- 变更：`src/service-api.mjs`仅对原生`Error`自身的精确`code === EADDRINUSE`构造`ServiceListenError`，固定内部reason为`address-in-use`；其余错误对象、代理属性访问抛错和任意非Error throw均原样传播。类型的面向日志message固定为`Statistics listener could not be started.`，不包含原错误、地址、端口或路径。未扩大allowlist：实测/现有需求仅要求真实端口冲突；EACCES/EPERM/EADDRNOTAVAIL没有在本次运行时验证，保持fail-fast而非推断可降级。
+- `index.mjs`只捕获`ServiceListenError`并做统计listener partial-degraded；配置store、读取snapshot、初始化status均不在该catch内。未知status/snapshot错误继续抛出。若Bun.serve成功但后续snapshot/status初始化抛错，仅best-effort stop本次刚创建的service后重抛，不触碰端口owner。日志仅在已识别listener不可用时best-effort输出一次固定warn；日志失败不影响hook注册路径。
+- 新增测试：实际由测试自有随机loopback端口owner触发真实Bun `EADDRINUSE`，断言typed error及去敏reason/message；未知Error和TypeError在实际Bun.serve边界原样传播、无degraded warn；隔离Bun子进程测试snapshot/status注入异常继续传播、无误分类并清理仅本次创建的listener。临时stub在fixture的finally恢复，数据只在`test-data/`隔离目录并清理。
+- Red：`bun test test/task2.test.mjs`，fix前38 pass / 2 fail，exit 1，日志`task-2-fix-2-red.log`。fail分别证明EADDRINUSE未typed，以及未知listener错误被吞掉；status/snapshot两类独立隔离注入由修复后的fixture新增覆盖。
+- Green：定向Bun Task2 40/40，exit0，`task-2-fix-2-green.log`；完整`npm test` exit0，Node 57/57、Bun 40/40及integration通过，`task-2-fix-2-full-test.log`。最终完整套件lock metrics：hook 0.251ms、flush Promise 11.251ms、heartbeat 24.301ms、自动恢复14.489ms；单次本机合成观测，不是性能保证。8轮原有真实四writer竞争仍精确100/52/52/48，无额外性能测试。
+- 范围未改变：不改validator/SQLite/Task1；不改HTTP/CORS/loopback/统计语义；不访问宿主/生产/SSH/配置，不做Task3，不push/部署/发布；日志/测试fixture不进入发布包或提交。
+- Fix2提交后执行质量门：四个修改JS文件`node --check`通过，`git diff --check`通过；`npm pack --dry-run` exit0，包内包含更新后的`src/service-api.mjs`，不包含`test/`、`test-data/`、证据与日志，记录见`task-2-fix-2-pack.log`。仅精确stage本轮tracked源码/测试/报告/进度；fixture与red/green/full-test/pack原始证据保持untracked不提交。
+
+---
+
 ## Takeover handoff — 2026-11-05
 
-### 状态：BLOCKED（交主代理判断，不宣称复审通过）
+### 历史状态：BLOCKED（已由本节fix2解除待修项；独立复审仍未完成）
 
 旧实施线程已由主代理中断；本次接手未派生子代理，也未对主代理/参考仓库、生产、SSH、Key、真实模型、远端、部署或发布执行操作。基线 `FIX_BASE=2f1a01542195bf4a07b10b3b2059c025fc9c94f4` 未移动；保留其上的fix1工作区实现，不reset/clean/stash/amend。
 

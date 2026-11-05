@@ -1,3 +1,12 @@
+
+export class ServiceListenError extends Error {
+  constructor() {
+    super('Statistics listener could not be started.');
+    this.name = 'ServiceListenError';
+    this.reasonCode = 'address-in-use';
+  }
+}
+
 function jsonResponse(body, status, headers = {}) {
   return new Response(JSON.stringify(body), {
     status,
@@ -47,7 +56,18 @@ export function createService({ store, port = 3479 } = {}) {
       } }, 200, cors);
     }
   };
-  server = Bun.serve({ hostname: '127.0.0.1', port, idleTimeout: 0, fetch: fetchHandler });
+  try {
+    server = Bun.serve({ hostname: '127.0.0.1', port, idleTimeout: 0, fetch: fetchHandler });
+  } catch (error) {
+    let code;
+    try {
+      code = error instanceof Error ? Object.getOwnPropertyDescriptor(error, 'code')?.value : undefined;
+    } catch {
+      throw error;
+    }
+    if (code === 'EADDRINUSE') throw new ServiceListenError();
+    throw error;
+  }
   let stopped = false;
   return {
     server,
