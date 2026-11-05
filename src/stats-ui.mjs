@@ -28,6 +28,7 @@ export function createStatsPoller({ fetcher = fetch, url = '/api/stats', getVisi
   let visible = getVisible();
   let intervalMs = 5000;
   let onUpdate = () => {};
+  let refreshOnResume = false;
   const clearTimer = () => { if (timer) clearTimeout(timer); timer = null; };
   const schedule = (delay = intervalMs) => {
     if (!started || stopped || !visible || !getVisible() || timer || inFlight) return;
@@ -67,7 +68,9 @@ export function createStatsPoller({ fetcher = fetch, url = '/api/stats', getVisi
           clearTimeout(timeout);
           try { onState(state.kind); } catch { /* UI state cannot break polling. */ }
           if (inFlight === request) inFlight = null;
-          schedule();
+          const delay = refreshOnResume ? 0 : intervalMs;
+          refreshOnResume = false;
+          schedule(delay);
         }
       });
       inFlight = request;
@@ -75,8 +78,13 @@ export function createStatsPoller({ fetcher = fetch, url = '/api/stats', getVisi
     },
     setVisible(next) {
       visible = next === true;
-      if (visible) schedule(0);
-      else clearTimer();
+      if (visible) {
+        if (inFlight) refreshOnResume = true;
+        else schedule(0);
+      } else {
+        refreshOnResume = false;
+        clearTimer();
+      }
     },
     start(nextIntervalMs = 5000, update = () => {}) {
       if (started) return;

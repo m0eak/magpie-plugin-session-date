@@ -35,7 +35,7 @@ function makeDocument() {
   return { elements, html, document: { documentElement: html, visibilityState: 'visible', getElementById: (id) => elements.get(id), addEventListener(type, fn) { listeners.set(type, fn); }, fire(type) { listeners.get(type)?.(); } }, listeners };
 }
 
-async function loadActualPageApp(service, { bootstrapOverride, onFetch, appSourceOverride, mockStats = false, captureRenderErrors = false } = {}) {
+async function loadActualPageApp(service, { bootstrapOverride, onFetch, appSourceOverride, mockStats = false, captureRenderErrors = false, mockBridge = false, legacyQueryToken = false } = {}) {
   const response = await fetch(new URL('/?theme=dark&lang=zh-CN', service.server.url));
   const html = await response.text();
   const bootstrapCode = html.match(/<script nonce="[^"]+">(window\.__SESSION_DATE_FILTER__=[^<]+)<\/script>/)?.[1];
@@ -54,13 +54,13 @@ async function loadActualPageApp(service, { bootstrapOverride, onFetch, appSourc
     return fetch(new URL(url, service.server.url), { ...init, headers: { ...(init?.headers || {}), Origin: 'null' } });
   };
   const context = vm.createContext({
-    document: ui.document, window: win, parent: host, location: { href: service.server.url }, fetch: requestFetch,
+    document: ui.document, window: win, parent: host, location: { href: legacyQueryToken ? `${service.server.url}?token=${token}&theme=dark&lang=zh-CN` : service.server.url }, fetch: requestFetch,
     addEventListener(type, fn) { if (type === 'message') messageListeners.add(fn); else listeners.set(type, fn); },
     removeEventListener(type, fn) { if (type === 'message') messageListeners.delete(fn); else listeners.delete(type); },
     setTimeout, clearTimeout, URL, Intl, Date, String, Object, Number, Error, Promise, AbortController, console,
     __deps: null,
   });
-  context.__deps = { createPageBridge: (options) => createPageBridge({ ...options, selfWindow: context, parentWindow: host }), createStatsPoller: (options) => { const poller = createStatsPoller({ ...options, fetcher: requestFetch }); if (captureRenderErrors) { const start = poller.start.bind(poller); poller.start = (interval, callback) => start(interval, (result) => { try { callback(result); } catch (error) { win.__renderError = error; } }); } return poller; }, setServiceToken: (value) => { if (typeof value === 'string') { context.__appToken = value; setPollerToken(value); } } };
+  context.__deps = { createPageBridge: (options) => mockBridge ? { ready: Promise.resolve({ visible: true, theme: null }), visible: true, stop() {} } : createPageBridge({ ...options, selfWindow: context, parentWindow: host }), createStatsPoller: (options) => { const poller = createStatsPoller({ ...options, fetcher: requestFetch }); if (captureRenderErrors) { const start = poller.start.bind(poller); poller.start = (interval, callback) => start(interval, (result) => { try { callback(result); } catch (error) { win.__renderError = error; } }); } return poller; }, setServiceToken: (value) => { if (typeof value === 'string') { context.__appToken = value; setPollerToken(value); } } };
   // Run the fetched production entry body with its production dependencies injected;
   // only the two ES import declarations are adapted for this no-browser harness.
   let appSource = appSourceOverride ?? await (await fetch(new URL('/app.mjs', service.server.url), { headers: { Origin: 'null' } })).text();
@@ -114,27 +114,43 @@ test('actual page app reads root HTML bootstrap token and renders localized real
 
 test('actual page entry renders a non-null timestamp without Intl option errors', { skip: typeof Bun === 'undefined' }, async () => {
   const service = createService({ store: { snapshot: () => good }, port: 0, token: HOST_TOKEN });
+  const unhandled = [];
+  const onUnhandled = (error) => unhandled.push(error);
+  process.on('unhandledRejection', onUnhandled);
   try {
-    const ui = await loadActualPageApp(service, { mockStats: true, captureRenderErrors: true, appSourceOverride: await (await fetch(new URL('/app.mjs', service.server.url), { headers: { Origin: 'null' } })).text() });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    const ui = await loadActualPageApp(service, { mockStats: true, captureRenderErrors: true, mockBridge: true, legacyQueryToken: true, appSourceOverride: await (await fetch(new URL('/app.mjs', service.server.url), { headers: { Origin: 'null' } })).text() });
+    await new Promise((resolve) => setTimeout(resolve, 25));
     assert.equal(ui.win.__renderError, undefined, 'the real entry rendering callback must not throw for a valid timestamp');
+    assert.deepEqual(unhandled, [], 'the real entry must not reject while rendering a valid timestamp');
     assert.ok(ui.elements.get('started').textContent.length > 0);
     assert.equal(ui.elements.get('started').title, good.stats.startedAt);
+    ui.cleanup();
+  } finally { process.off('unhandledRejection', onUnhandled); await service.stop(); }
+});
+
+test('malformed runtime bootstrap fails closed without requesting stats', { skip: typeof Bun === 'undefined' }, async () => {
+  const service = createService({ store: { snapshot: () => good }, port: 0, token: HOST_TOKEN });
+  let calls = 0;
+  try {
+    const ui = await loadActualPageApp(service, { bootstrapOverride: { token: 'not-a-token', theme: 'dark', lang: 'zh-CN' }, onFetch: () => { calls++; } });
+    assert.equal(ui.elements.get('status').dataset.state, 'unavailable');
+    assert.equal(ui.elements.get('refresh').disabled, true);
+    assert.equal(ui.elements.get('refresh').getAttribute('aria-busy'), 'false');
+    assert.equal(ui.elements.get('total').textContent, '—');
+    assert.equal(calls, 0, 'malformed bootstrap must stop before making an API request');
     ui.cleanup();
   } finally { await service.stop(); }
 });
 
-test('malformed runtime bootstrap shows unavailable and never reports empty statistics', { skip: typeof Bun === 'undefined' }, async () => {
+test('a rejected bootstrap bearer token shows unavailable without rendering zeroes', { skip: typeof Bun === 'undefined' }, async () => {
   const service = createService({ store: { snapshot: () => good }, port: 0, token: HOST_TOKEN });
   let calls = 0;
   try {
     const ui = await loadActualPageApp(service, { bootstrapOverride: { token: BAD_TOKEN, theme: 'dark', lang: 'zh-CN' }, onFetch: () => { calls++; } });
     await new Promise((resolve) => setTimeout(resolve, 15));
     assert.equal(ui.elements.get('status').dataset.state, 'unavailable');
-    assert.equal(ui.elements.get('refresh').getAttribute('aria-busy'), 'false');
     assert.equal(ui.elements.get('total').textContent, '—');
-    assert.equal(calls, 1, 'an invalid token is sent only to the fixed authenticated API');
-    assert.equal(ui.elements.get('total').textContent, '—', 'failed bootstrap authentication must not render zero statistics');
+    assert.equal(calls, 1, 'the bearer token is only attempted against the fixed authenticated API');
     ui.cleanup();
   } finally { await service.stop(); }
 });
@@ -169,6 +185,25 @@ test('poller resumes with repeated reads and onUpdate callbacks, then stops comp
   poller.stop(); const stoppedReads = reads, stoppedUpdates = updates;
   await new Promise((resolve) => setTimeout(resolve, 35));
   assert.equal(reads, stoppedReads); assert.equal(updates, stoppedUpdates);
+});
+
+test('visibility returning during a request triggers one immediate follow-up without overlap', async () => {
+  let visible = true, calls = 0, active = 0, maxActive = 0, resolveFirst;
+  const poller = createStatsPoller({ fetcher: () => {
+    calls++; active++; maxActive = Math.max(maxActive, active);
+    if (calls === 1) return new Promise((resolve) => { resolveFirst = () => { active--; resolve({ ok: true, json: async () => good }); }; });
+    active--;
+    return Promise.resolve({ ok: true, json: async () => good });
+  }, getVisible: () => visible, timeoutMs: 500 });
+  poller.start(1000, () => {});
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  poller.setVisible(false); visible = false;
+  visible = true; poller.setVisible(true);
+  resolveFirst();
+  await new Promise((resolve) => setTimeout(resolve, 35));
+  assert.equal(calls, 2, 'the hidden-to-visible recovery should immediately schedule one follow-up');
+  assert.equal(maxActive, 1, 'the in-flight request must finish before the recovery request starts');
+  poller.stop();
 });
 
 test('synchronous fetcher throw releases the single-flight slot for retry', async () => {
