@@ -169,7 +169,7 @@ export default { id:'session-date-filter', async server(input, options) { ... } 
 - Red：`bun test test/task2.test.mjs`，fix前38 pass / 2 fail，exit 1，日志`task-2-fix-2-red.log`。fail分别证明EADDRINUSE未typed，以及未知listener错误被吞掉；status/snapshot两类独立隔离注入由修复后的fixture新增覆盖。
 - Green：定向Bun Task2 40/40，exit0，`task-2-fix-2-green.log`；完整`npm test` exit0，Node 57/57、Bun 40/40及integration通过，`task-2-fix-2-full-test.log`。最终完整套件lock metrics：hook 0.251ms、flush Promise 11.251ms、heartbeat 24.301ms、自动恢复14.489ms；单次本机合成观测，不是性能保证。8轮原有真实四writer竞争仍精确100/52/52/48，无额外性能测试。
 - 范围未改变：不改validator/SQLite/Task1；不改HTTP/CORS/loopback/统计语义；不访问宿主/生产/SSH/配置，不做Task3，不push/部署/发布；日志/测试fixture不进入发布包或提交。
-- Fix2提交后执行质量门：四个修改JS文件`node --check`通过，`git diff --check`通过；`npm pack --dry-run` exit0，包内包含更新后的`src/service-api.mjs`，不包含`test/`、`test-data/`、证据与日志，记录见`task-2-fix-2-pack.log`。仅精确stage本轮tracked源码/测试/报告/进度；fixture与red/green/full-test/pack原始证据保持untracked不提交。
+- 当前fix2源码/测试/追踪文档已本地提交：`3eea30c`（实现与回归）、`f227f03`（隔离错误边界fixture），状态为**已实现待独立复审**，不能称review clean。独立复审材料为`task-2-fix-2-review.patch`（fix2差异）与`task-2-fix-all-review.patch`（从原fix1基线起完整差异），均包含commit log、stat和full diff；未覆盖原fix1 patch。工作树中的原有未跟踪日志/诊断/fixtures/test-data均保留；本轮red/green/full-test/pack原始证据也不混入commit。交付后不派审查子代理、不进入Task3。
 
 ---
 
