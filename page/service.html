@@ -10,7 +10,7 @@
 </head>
 <body>
   <main>
-    <header><div><h1>会话日期清理 <span aria-hidden="true">/</span> Session Date Filter</h1><p class="subtitle">只读聚合统计 · Read-only aggregate statistics</p></div><button id="refresh" type="button">手动刷新</button></header>
+    <header><div><h1>会话日期清理 <span aria-hidden="true">/</span> Session Date Filter</h1><p class="subtitle">只读聚合统计 · Read-only aggregate statistics</p></div><button id="refresh" type="button" disabled aria-busy="true">手动刷新</button></header>
     <div class="status-row"><p id="status" role="status" aria-live="polite" data-state="loading">正在加载…</p></div>
     <p id="stale" role="alert" aria-live="assertive"></p>
     <section class="hero" aria-label="累计移除行数"><strong id="total">—</strong><span>累计移除行数 / lines removed</span></section>

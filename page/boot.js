@@ -13,6 +13,6 @@
     }
     location.replace(url.href);
   } catch (error) {
-    status.textContent = `统计服务不可用：${String(error?.message || '连接失败')}`;
+    status.textContent = '统计服务不可用 / Statistics service unavailable.';
   }
 })();

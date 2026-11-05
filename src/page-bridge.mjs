@@ -1,3 +1,5 @@
+const HOST_MESSAGE_MARKER = 'magpie';
+
 const THEME_KEYS = new Set(['bg', 'card', 'fg', 'fg-2', 'muted', 'faint', 'line', 'accent', 'accent-soft', 'accent-fg', 'green', 'red', 'amber', 'font', 'code']);
 
 export function createPageBridge({ parentWindow = globalThis.parent, selfWindow = globalThis, timeoutMs = 6000, onTheme = () => {}, onVisibility = () => {} } = {}) {
@@ -18,7 +20,7 @@ export function createPageBridge({ parentWindow = globalThis.parent, selfWindow 
       if (typeof theme.lang === 'string' && theme.lang) root.lang = theme.lang;
       if (theme.tokens && typeof theme.tokens === 'object') {
         for (const [key, value] of Object.entries(theme.tokens)) {
-          if (THEME_KEYS.has(key) && typeof value === 'string') root.style.setProperty(`--opencode-${key}`, value);
+          if (THEME_KEYS.has(key) && typeof value === 'string') root.style.setProperty(`--${HOST_MESSAGE_MARKER}-${key}`, value);
         }
       }
     }
@@ -27,7 +29,7 @@ export function createPageBridge({ parentWindow = globalThis.parent, selfWindow 
   const receive = (event) => {
     if (!active || event.source !== parentWindow) return;
     const message = event.data;
-    if (!message || message.opencode !== 1) return;
+    if (!message || message[HOST_MESSAGE_MARKER] !== 1) return;
     if (message.event === 'theme') {
       if (settled) applyTheme(message.data);
       return;
@@ -64,7 +66,7 @@ export function createPageBridge({ parentWindow = globalThis.parent, selfWindow 
       selfWindow.removeEventListener('message', receive);
       rejectReady(new Error('Host page bridge timed out.'));
     }, timeoutMs);
-    parentWindow.postMessage({ opencode: 1, id: helloId, method: 'hello', params: {} }, '*');
+    parentWindow.postMessage({ [HOST_MESSAGE_MARKER]: 1, id: helloId, method: 'hello', params: {} }, '*');
   } else {
     settled = true;
     resolveReady({ visible: true, theme: null });

@@ -47,6 +47,8 @@ export function createService({ store, port = 3479, token = '' } = {}) {
     const isRoot = url.pathname === '/';
     const isAsset = ASSETS.has(url.pathname);
     if (!isApi && !isRoot && !isAsset) return jsonResponse({ error: 'Not found' }, 404);
+    if ((isRoot || isAsset) && request.method !== 'GET' && request.method !== 'HEAD') return jsonResponse({ error: 'Method not allowed' }, 405);
+    if (isAsset && url.search) return jsonResponse({ error: 'Not found' }, 404);
     const cors = {
       'access-control-allow-origin': origin ?? `http://${host}`,
       'access-control-allow-methods': 'GET, OPTIONS',
@@ -82,9 +84,7 @@ export function createService({ store, port = 3479, token = '' } = {}) {
         });
       } catch { return jsonResponse({ error: 'Asset unavailable' }, 503); }
     }
-    if (isAsset && url.search) return jsonResponse({ error: 'Not found' }, 404);
     if (isApi && request.method !== 'GET') return jsonResponse({ error: 'Method not allowed' }, 405, cors);
-    if ((isRoot || isAsset) && request.method !== 'GET' && request.method !== 'HEAD') return jsonResponse({ error: 'Method not allowed' }, 405);
     if (url.pathname === '/api/stats') {
       if (token && request.headers.get('authorization') !== `Bearer ${token}`) return jsonResponse({ error: 'Unauthorized' }, 401, cors);
       try { return jsonResponse(store.snapshot(), 200, cors); }
@@ -97,7 +97,9 @@ export function createService({ store, port = 3479, token = '' } = {}) {
     const [relative, contentType] = ASSETS.get(url.pathname);
     try {
       const body = await readFile(fileURLToPath(new URL(relative, import.meta.url)));
-      return response(request.method === 'HEAD' ? null : body, 200, { 'content-type': contentType });
+      const headers = { 'content-type': contentType, vary: 'Origin' };
+      if (origin === 'null') headers['access-control-allow-origin'] = 'null';
+      return response(request.method === 'HEAD' ? null : body, 200, headers);
     } catch { return jsonResponse({ error: 'Asset unavailable' }, 503); }
   };
   try { server = Bun.serve({ hostname: '127.0.0.1', port, idleTimeout: 0, fetch: fetchHandler }); }

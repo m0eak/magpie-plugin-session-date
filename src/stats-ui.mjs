@@ -20,20 +20,35 @@ export function validateStats(value) {
   return value;
 }
 
-export function createStatsPoller({ fetcher = fetch, url = '/api/stats', getVisible = () => true, timeoutMs = 4000 } = {}) {
+export function createStatsPoller({ fetcher = fetch, url = '/api/stats', getVisible = () => true, timeoutMs = 4000, onState = () => {} } = {}) {
   let inFlight = null;
   let timer = null;
   let stopped = false;
   let started = false;
   let visible = getVisible();
+  let intervalMs = 5000;
+  let onUpdate = () => {};
+  const clearTimer = () => { if (timer) clearTimeout(timer); timer = null; };
+  const schedule = (delay = intervalMs) => {
+    if (!started || stopped || !visible || !getVisible() || timer || inFlight) return;
+    timer = setTimeout(() => { timer = null; void tick(); }, delay);
+  };
   const state = { snapshot: null, kind: 'loading', error: '' };
+  async function tick() {
+    if (stopped || !started || !visible || !getVisible()) return;
+    const result = await poller.refresh();
+    if (stopped) return;
+    if (visible && getVisible()) { try { onUpdate(result); } catch { /* UI rendering cannot break the timer. */ } }
+    schedule();
+  }
   const poller = {
     state,
     refresh() {
-      if (!visible || !getVisible()) return Promise.resolve({ kind: 'paused' });
+      if (stopped || !visible || !getVisible()) return Promise.resolve({ kind: 'paused' });
       if (inFlight) return inFlight;
       state.kind = state.snapshot ? 'refreshing' : 'loading';
-      const request = (async () => {
+      try { onState(state.kind); } catch { /* UI state cannot break polling. */ }
+      const request = Promise.resolve().then(async () => {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), timeoutMs);
         try {
@@ -50,30 +65,28 @@ export function createStatsPoller({ fetcher = fetch, url = '/api/stats', getVisi
           return { kind: state.kind, snapshot: state.snapshot };
         } finally {
           clearTimeout(timeout);
-          inFlight = null;
+          try { onState(state.kind); } catch { /* UI state cannot break polling. */ }
+          if (inFlight === request) inFlight = null;
+          schedule();
         }
-      })();
+      });
       inFlight = request;
       return request;
     },
     setVisible(next) {
       visible = next === true;
-      if (visible && started && !timer && !inFlight && !stopped) timer = setTimeout(() => { timer = null; void poller.refresh(); }, 0);
-      if (!visible && timer) { clearTimeout(timer); timer = null; }
+      if (visible) schedule(0);
+      else clearTimer();
     },
-    start(intervalMs = 5000, onUpdate = () => {}) {
+    start(nextIntervalMs = 5000, update = () => {}) {
       if (started) return;
       started = true;
       stopped = false;
-      const tick = async () => {
-        if (stopped) return;
-        if (visible && getVisible()) onUpdate(await poller.refresh());
-        if (!visible || stopped) return;
-        timer = setTimeout(tick, intervalMs);
-      };
+      intervalMs = Number.isFinite(nextIntervalMs) && nextIntervalMs >= 0 ? nextIntervalMs : 5000;
+      onUpdate = typeof update === 'function' ? update : () => {};
       void tick();
     },
-    stop() { stopped = true; if (timer) clearTimeout(timer); timer = null; },
+    stop() { stopped = true; clearTimer(); },
   };
   return poller;
 }
