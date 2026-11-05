@@ -46,3 +46,7 @@ node --check page/app.mjs
 ```
 
 完整报告、测试日志、tarball SHA256、变更/patch及未验证项见 `.superpowers/sdd/session-date-filter/task-3-report.md`。计划与规格见 `docs/superpowers/plans/2026-11-04-session-date-filter-plan.md` 与 `docs/superpowers/specs/2026-11-04-session-date-filter-design.md`。
+
+### 过滤边界
+
+日期只在真实物理独立整行时匹配；同一物理行上的 session 标签与日期片段不会删除。Markdown fenced code / quote 中的日期与结构标签按保护内容跳过；围栏按相同字符及不短于起始符号长度配对。保护规则是刻意有限的，不是完整 CommonMark/XML parser；畸形或未闭合结构保持 fail-open。完全伪造同结构语义仍不可仅凭文本区分，且引用 lazy continuation 等复杂 Markdown 排版可能保守漏匹配。

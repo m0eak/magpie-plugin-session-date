@@ -25,8 +25,8 @@ function protectedMarkdownLines(text) {
       protectedLines.add(cursor);
       if (new RegExp(`^ {0,3}${fence.char}{${fence.length},}[\\t ]*$`).test(line)) fence = null;
     } else {
-      const open = line.match(/^ {0,3}(`{3,}|~{3,})(?:[^`~]*)$/);
-      if (open) {
+      const open = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+      if (open && !(open[1][0] === '`' && open[2].includes('`'))) {
         fence = { char: open[1][0], length: open[1].length };
         protectedLines.add(cursor);
         quoteContinuation = false;
@@ -58,15 +58,23 @@ function isValidCalendarLine(line) {
 function stripSessionBlock(text, start, end, protectedLines) {
   let output = '', removedLines = 0, cursor = start;
   while (cursor < end) {
+    let lineStart = cursor;
+    while (lineStart > 0 && text[lineStart - 1] !== '\n') lineStart -= 1;
     let lineEnd = text.indexOf('\n', cursor);
-    if (lineEnd === -1 || lineEnd >= end) lineEnd = end;
-    const hasLf = lineEnd < end && text[lineEnd] === '\n';
-    const valueEnd = hasLf && lineEnd > cursor && text[lineEnd - 1] === '\r' ? lineEnd - 1 : lineEnd;
-    const line = text.slice(cursor, valueEnd);
-    const next = hasLf ? lineEnd + 1 : lineEnd;
-    if (!protectedLines.has(cursor) && isValidCalendarLine(line)) removedLines += 1;
-    else output += text.slice(cursor, next);
-    cursor = next;
+    if (lineEnd === -1) lineEnd = text.length;
+    const valueEnd = lineEnd > lineStart && text[lineEnd - 1] === '\r' ? lineEnd - 1 : lineEnd;
+    const line = text.slice(lineStart, valueEnd);
+    const next = lineEnd < text.length ? lineEnd + 1 : lineEnd;
+    const insideTarget = lineStart >= start && lineEnd <= end;
+    if (insideTarget && !protectedLines.has(lineStart) && isValidCalendarLine(line)) {
+      removedLines += 1;
+      output += text.slice(cursor, lineStart);
+      cursor = next;
+    } else {
+      const chunkEnd = Math.min(next, end);
+      output += text.slice(cursor, chunkEnd);
+      cursor = chunkEnd;
+    }
   }
   return { text: output, removedLines };
 }
@@ -77,17 +85,26 @@ function matchingToolName(openTag) {
   return null;
 }
 
-function findTagsInRange(text, open, close, start, end) {
+function nextUnprotectedTag(text, tag, cursor, end, protectedLines) {
+  let index = text.indexOf(tag, cursor);
+  while (index !== -1 && index < end) {
+    if (!protectedLines.has(lineStartAt(text, index))) return index;
+    index = text.indexOf(tag, index + tag.length);
+  }
+  return -1;
+}
+
+function findTagsInRange(text, open, close, start, end, protectedLines) {
   const result = [];
   let cursor = start;
   while (cursor < end) {
-    const openAt = text.indexOf(open, cursor);
-    const closeAt = text.indexOf(close, cursor);
-    if (closeAt !== -1 && closeAt < end && (openAt === -1 || openAt >= end || closeAt < openAt)) return null;
-    if (openAt === -1 || openAt >= end) break;
-    const nextOpen = text.indexOf(open, openAt + open.length);
-    const nextClose = text.indexOf(close, openAt + open.length);
-    if (nextClose === -1 || nextClose >= end || (nextOpen !== -1 && nextOpen < nextClose)) return null;
+    const openAt = nextUnprotectedTag(text, open, cursor, end, protectedLines);
+    const closeAt = nextUnprotectedTag(text, close, cursor, end, protectedLines);
+    if (closeAt !== -1 && (openAt === -1 || closeAt < openAt)) return null;
+    if (openAt === -1) break;
+    const nextOpen = nextUnprotectedTag(text, open, openAt + open.length, end, protectedLines);
+    const nextClose = nextUnprotectedTag(text, close, openAt + open.length, end, protectedLines);
+    if (nextClose === -1 || (nextOpen !== -1 && nextOpen < nextClose)) return null;
     result.push({ start: openAt, contentStart: openAt + open.length, contentEnd: nextClose, end: nextClose + close.length });
     cursor = nextClose + close.length;
   }
@@ -96,10 +113,10 @@ function findTagsInRange(text, open, close, start, end) {
 
 function stripInTool(text, tool, protectedLines) {
   const instructionOpen = '<tool.instructions>', instructionClose = '</tool.instructions>';
-  const instructions = findTagsInRange(text, instructionOpen, instructionClose, tool.contentStart, tool.contentEnd);
+  const instructions = findTagsInRange(text, instructionOpen, instructionClose, tool.contentStart, tool.contentEnd, protectedLines);
   if (!instructions || instructions.length !== 1) return [];
   const instruction = instructions[0];
-  const sessions = findTagsInRange(text, '<session_context>', '</session_context>', instruction.contentStart, instruction.contentEnd);
+  const sessions = findTagsInRange(text, '<session_context>', '</session_context>', instruction.contentStart, instruction.contentEnd, protectedLines);
   if (!sessions || sessions.length !== 1) return [];
   const session = sessions[0];
   for (const offset of [tool.start, instruction.start, instruction.contentEnd, session.start, session.contentEnd]) {
@@ -109,13 +126,16 @@ function stripInTool(text, tool, protectedLines) {
   return result.removedLines ? [{ ...result, start: session.contentStart, end: session.contentEnd }] : [];
 }
 
-function findTopLevelTools(text, start, end) {
+function findTopLevelTools(text, start, end, protectedLines) {
   const tags = new RegExp(TOOL_TAG.source, 'g');
   const tools = [];
   const stack = [];
   let match;
-  while ((match = tags.exec(text.slice(start, end))) !== null) {
-    const tagStart = start + match.index;
+  while ((match = tags.exec(text)) !== null) {
+    const tagStart = match.index;
+    if (tagStart < start) continue;
+    if (tagStart >= end) break;
+    if (protectedLines.has(lineStartAt(text, tagStart))) continue;
     if (match[0] === '</tool>') {
       if (!stack.length) return null;
       const opened = stack.pop();
@@ -197,7 +217,7 @@ export function stripSessionDates(text) {
       continue;
     }
 
-    const tools = findTopLevelTools(text, region.contentStart, region.closeStart);
+    const tools = findTopLevelTools(text, region.contentStart, region.closeStart, protectedLines);
     const replacements = [];
     if (tools) {
       for (const tool of tools) {

@@ -322,3 +322,118 @@ test('ignores protected opening and closing examples while a real wrapper is act
   const expected = prompt(toolBlock('Memory', `<session_context>\n${protectedToolsSample}\n</session_context>`));
   assert.deepEqual(stripSessionDates(input), { text: expected, removedLines: 1 });
 });
+
+test('manual fix F1: supports legal fence info strings and removes only a real date line', () => {
+  const body = [
+    '<session_context>',
+    '~~~js~literal', dateLine, '~~~',
+    '~~~js`literal', dateLine, '~~~',
+    '```js~literal', dateLine, '```',
+    '~~~~language with ~ info', dateLine, '~~~~',
+    dateLine,
+    '</session_context>',
+  ].join('\n');
+  const expectedBody = body.replace(`\n${dateLine}\n</session_context>`, '\n</session_context>');
+  const input = prompt(toolBlock('Memory', body));
+  assert.deepEqual(stripSessionDates(input), {
+    text: prompt(toolBlock('Memory', expectedBody)),
+    removedLines: 1,
+  });
+});
+
+test('manual fix F1: fence closes require matching character and sufficient run length', () => {
+  const body = `<session_context>\n~~~~json\n${dateLine}\n~~~\n${dateLine}\n${String.fromCharCode(96).repeat(3)}\n${dateLine}\n~~~~\n${dateLine}\n</session_context>`;
+  const expectedBody = body.replace(`\n${dateLine}\n</session_context>`, '\n</session_context>');
+  assert.deepEqual(stripSessionDates(prompt(toolBlock('Memory', body))), {
+    text: prompt(toolBlock('Memory', expectedBody)),
+    removedLines: 1,
+  });
+});
+
+test('manual fix F1: preserves CRLF fenced examples and filters the following real line', () => {
+  const body = `<session_context>\r\n~~~js~literal\r\n${dateLine}\r\n~~~\r\n${dateLine}\r\n</session_context>`;
+  const expectedBody = `<session_context>\r\n~~~js~literal\r\n${dateLine}\r\n~~~\r\n</session_context>`;
+  assert.deepEqual(stripSessionDates(prompt(toolBlock('Memory', body))), {
+    text: prompt(toolBlock('Memory', expectedBody)),
+    removedLines: 1,
+  });
+});
+
+test('manual fix F2: rejects date fragments sharing a physical line with either session tag', () => {
+  const bodies = [
+    `<session_context>${dateLine}</session_context>`,
+    `<session_context>${dateLine}\n</session_context>`,
+    `<session_context>\n${dateLine}</session_context>`,
+  ];
+  for (const body of bodies) {
+    const input = prompt(toolBlock('Memory', body));
+    assert.deepEqual(stripSessionDates(input), { text: input, removedLines: 0 }, body);
+  }
+});
+
+test('manual fix F2: removes only a complete physical date line and preserves all other bytes', () => {
+  const body = `<session_context>\r\nleft\r\n \t${dateLine}\t \r\nright\r\n</session_context>`;
+  const expectedBody = `<session_context>\r\nleft\r\nright\r\n</session_context>`;
+  assert.deepEqual(stripSessionDates(prompt(toolBlock('Credentials', body))), {
+    text: prompt(toolBlock('Credentials', expectedBody)),
+    removedLines: 1,
+  });
+});
+
+test('manual fix F3: ignores fenced structural close examples at every tool/session layer', () => {
+  const tick = String.fromCharCode(96);
+  const fence = tick.repeat(3);
+  const body = `<tool.instructions>\n${fence}xml\n</tool>\n</session_context>\n${fence}\n<session_context>\n${dateLine}\nKeep exact\n</session_context>\n</tool.instructions>`;
+  const input = prompt(`<tool name="Memory">\n${body}\n</tool>`);
+  const expectedBody = body.replace(`\n${dateLine}\nKeep exact`, '\nKeep exact');
+  assert.deepEqual(stripSessionDates(input), {
+    text: prompt(`<tool name="Memory">\n${expectedBody}\n</tool>`),
+    removedLines: 1,
+  });
+});
+
+test('manual fix F3: ignores every protected tool-structure opening and closing tag', () => {
+  const tick = String.fromCharCode(96);
+  const fence = tick.repeat(3);
+  const sample = [
+    '<tool name="Other">', '<tool.instructions>', '<session_context>',
+    dateLine, '</session_context>', '</tool.instructions>', '</tool>',
+  ].join('\n');
+  const body = `<tool.instructions>\n${fence}xml\n${sample}\n${fence}\n<session_context>\n${dateLine}\nKeep exact\n</session_context>\n</tool.instructions>`;
+  const input = prompt(`<tool name="Memory">\n${body}\n</tool>`);
+  const expectedBody = body.replace(`\n${dateLine}\nKeep exact`, '\nKeep exact');
+  assert.deepEqual(stripSessionDates(input), {
+    text: prompt(`<tool name="Memory">\n${expectedBody}\n</tool>`),
+    removedLines: 1,
+  });
+});
+
+test('manual fix F3: ignores quoted tool and session tags while processing the actual wrapper', () => {
+  const sample = [
+    '> <tool name="Other">', '> <tool.instructions>', '> <session_context>',
+    `> ${dateLine}`, '> </session_context>', '> </tool.instructions>', '> </tool>',
+  ].join('\n');
+  const body = `<tool.instructions>\n${sample}\n\n<session_context>\n${dateLine}\nKeep exact\n</session_context>\n</tool.instructions>`;
+  const input = prompt(`<tool name="Memory">\n${body}\n</tool>`);
+  const expectedBody = body.replace(`\n${dateLine}\nKeep exact`, '\nKeep exact');
+  assert.deepEqual(stripSessionDates(input), {
+    text: prompt(`<tool name="Memory">\n${expectedBody}\n</tool>`),
+    removedLines: 1,
+  });
+});
+
+test('manual fix F3: protected close in another tool does not skip a sibling Memory tool', () => {
+  const tick = String.fromCharCode(96);
+  const other = `<tool name="Other">\n<tool.instructions>\n${tick.repeat(3)}xml\n</tool>\n${tick.repeat(3)}\n</tool.instructions>\n</tool>`;
+  const memory = toolBlock('Memory');
+  const input = prompt(`${other}\n${memory}`);
+  const expected = prompt(`${other}\n${toolBlock('Memory', cleanSession)}`);
+  assert.deepEqual(stripSessionDates(input), { text: expected, removedLines: 1 });
+});
+
+test('manual fix F3: a protected fake close cannot complete a genuinely unclosed tool', () => {
+  const tick = String.fromCharCode(96);
+  const fence = tick.repeat(3);
+  const input = `<tools description="The tools you can use below">\n<tool name="Memory">\n<tool.instructions>\n<session_context>\n${dateLine}\n</session_context>\n${fence}xml\n</tool>\n${fence}\n</tool.instructions>\n</tools>`;
+  assert.deepEqual(stripSessionDates(input), { text: input, removedLines: 0 });
+});
