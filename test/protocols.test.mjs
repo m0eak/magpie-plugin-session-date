@@ -87,11 +87,13 @@ test('filters Responses instructions and system/developer message input', () => 
   };
   const result = filterRequest(body, 'responses');
   assert.equal(result.supported, true);
-  assert.equal(result.removedLines, 4);
+  assert.equal(result.removedLines, 5);
   assert.equal(result.body.instructions, clean);
   assert.equal(result.body.input[0].content, clean);
   assert.equal(result.body.input[1].content[0].text, clean);
-  for (const index of [2, 3, 4, 5, 7]) assert.equal(result.body.input[index], body.input[index]);
+  for (const index of [2, 3, 4, 5]) assert.equal(result.body.input[index], body.input[index]);
+  assert.equal(result.body.input[7].content, clean);
+  assert.notEqual(result.body.input[7], body.input[7]);
   assert.equal(result.body.input[6].content[0].text, clean);
   assert.equal(result.body.input[6].content[0].type, 'input_text');
   assert.equal(result.body.model, body.model);

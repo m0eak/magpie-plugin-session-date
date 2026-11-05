@@ -19,7 +19,7 @@ function validateChatToolCalls(value) {
 
 function validateChatContent(value, { allowMissing = false } = {}) {
   if (typeof value === 'string') return measurable();
-  if (value === null && allowMissing) return unmeasurable();
+  if ((value === null || value === undefined) && allowMissing) return unmeasurable();
   if (Array.isArray(value)) return merge(value.map(validateChatPart));
   return invalid();
 }
@@ -56,14 +56,16 @@ function validateChatMessage(message) {
   if (['system', 'developer', 'user', 'tool'].includes(role)) {
     if (role === 'tool' && !isNonEmptyString(message.tool_call_id)) return invalid();
     if (message.name !== undefined && typeof message.name !== 'string') return invalid();
-    return validateChatContent(message.content, { allowMissing: role === 'user' });
+    return validateChatContent(message.content);
   }
   if (role === 'function') {
     return isNonEmptyString(message.name) && typeof message.content === 'string' ? measurable() : invalid();
   }
   if (role !== 'assistant') return invalid();
   if (message.name !== undefined && typeof message.name !== 'string') return invalid();
-  let state = validateChatContent(message.content, { allowMissing: true });
+  let state = message.content === undefined
+    ? unmeasurable()
+    : validateChatContent(message.content, { allowMissing: true });
   if (!state.valid) return invalid();
   if (message.tool_calls !== undefined) {
     const calls = validateChatToolCalls(message.tool_calls);
@@ -112,7 +114,13 @@ function validateResponsesContent(value) {
 }
 
 function validateResponsesItem(item) {
-  if (!isRecord(item) || !isNonEmptyString(item.type)) return invalid();
+  if (!isRecord(item)) return invalid();
+  if (item.type === undefined) {
+    if (!isNonEmptyString(item.role) || !Object.hasOwn(item, 'content')) return invalid();
+    if (!['system', 'developer', 'user', 'assistant'].includes(item.role)) return invalid();
+    return validateResponsesContent(item.content);
+  }
+  if (!isNonEmptyString(item.type)) return invalid();
   switch (item.type) {
     case 'message':
       if (!['system', 'developer', 'user', 'assistant'].includes(item.role)) return invalid();
@@ -221,10 +229,10 @@ function validateGeminiPart(part) {
     case 'text': return typeof value === 'string' ? measurable() : invalid();
     case 'functionCall': return isRecord(value) && isNonEmptyString(value.name) && (value.args === undefined || isRecord(value.args)) ? measurable() : invalid();
     case 'functionResponse': return isRecord(value) && isNonEmptyString(value.name) && isRecord(value.response) ? measurable() : invalid();
-    case 'inlineData': return isRecord(value) && isNonEmptyString(value.mimeType) && isNonEmptyString(value.data) ? unmeasurable() : invalid();
-    case 'fileData': return isRecord(value) && isNonEmptyString(value.mimeType) && isNonEmptyString(value.fileUri) ? unmeasurable() : invalid();
-    case 'executableCode': return isRecord(value) && isNonEmptyString(value.code) && isNonEmptyString(value.language) ? unmeasurable() : invalid();
-    case 'codeExecutionResult': return isRecord(value) && isNonEmptyString(value.outcome) && typeof value.output === 'string' ? unmeasurable() : invalid();
+    case 'inlineData': return isRecord(value) && isNonEmptyString(value.mimeType) && isNonEmptyString(value.data) ? measurable() : invalid();
+    case 'fileData': return isRecord(value) && isNonEmptyString(value.mimeType) && isNonEmptyString(value.fileUri) ? measurable() : invalid();
+    case 'executableCode': return isRecord(value) && isNonEmptyString(value.code) && isNonEmptyString(value.language) ? measurable() : invalid();
+    case 'codeExecutionResult': return isRecord(value) && isNonEmptyString(value.outcome) && typeof value.output === 'string' ? measurable() : invalid();
     case 'videoMetadata': return isRecord(value) ? unmeasurable() : invalid();
     default: return invalid();
   }

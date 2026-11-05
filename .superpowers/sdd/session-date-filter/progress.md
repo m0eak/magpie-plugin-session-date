@@ -22,7 +22,7 @@
 
 
 ## Task 2 — request hook、统计存储与只读 service API
-- 状态：fix2已实现、定向与全套测试通过并本地提交，待独立复审；不宣称review clean，不push/部署。
+- fix2独立定向复审与中间验收：BASE `2f1a01542195bf4a07b10b3b2059c025fc9c94f4`..HEAD `5f816614b2e8df8328e61d8cccf333b3833d864a`，review + middle acceptance clean；I1/I2/I3/M1均ADDRESSED，无新Critical/Important。独立真实Bun合成探针exit0，四协议精确计数见 `task-2-fix-acceptance/review.md` 与原始 `acceptance-20261105.raw.log`。仅Task3真实宿主loader/page/UI与生产部署仍未验证；未启动Task3。原有untracked logs/debug DB均保留，本轮只新增 `task-2-fix-acceptance/` 证据目录。
 - 当前Task2交付基线为 `2f1a01542195bf4a07b10b3b2059c025fc9c94f4`；fix1为`c3cf88c3102e86d937955d8e064a7307b07597e2`，fix2前HEAD为`5ced8e0b8b55954e962dd733c1d96a6580e7e44d`。fix2本地提交及完整复审补丁均在Task2报告中登记。历史probe/报告/DB/WAL等untracked证据原位保留，未清理。
 - 根因沿用完整诊断 `.superpowers/sdd/session-date-filter/task-2-diagnosis/diagnosis.md`：deferred seed INSERT竞争导致first-open丢pending；旧5秒busy handler同步卡event loop；Node默认发现混跑Bun测试/fixture。本轮新red：`task-2-recovery-red-baseline.log`，Bun 12/13、exit1，失败为真实并发writer SQLITE_BUSY。
 - 修复：IMMEDIATE schema+seed事务；初始化WAL/schema/seed busy上限10ms，运行期flush busy上限2ms；request hook经microtask只做内存计数。后台有限退避（25/75/200/500/1000ms，总窗口2秒、timer unref），失败保留pending，事务提交后只消费提交快照；成功边界为事务commit，无snapshot重提delta。坏schema/数据范围异常不静默清零。详情/边界见 `task-2-report.md` 和 `task-2-recovery-brief.md`。
@@ -36,4 +36,11 @@
 
 ## 最终复审结论
 
+- Task 2: complete (review + middle acceptance clean; BASE `2f1a01542195bf4a07b10b3b2059c025fc9c94f4`..HEAD `5f816614b2e8df8328e61d8cccf333b3833d864a`；报告 `task-2-fix-acceptance/review.md`)。未包含Task3宿主真实集成、页面或部署验收。
 - Task 1: complete (commits eae3285..9755c77, review clean)。阶段一规格符合 PASS、代码质量 PASS；没有启动 Task 2。
+
+
+## Manual review corrections — 核心入口修复中（2026-11-05）
+- 人工复审在公开hook入口发现此前Task2验收遗漏；既有Task2 PASS仍保留为历史，不作为当前修正后的验收结论。Task3页面开发暂停。
+- 本轮覆盖Chat tool_calls无content、Responses easy input无type及unknown type不误识别、Gemini inline image/file与合法未知无关payload、已知畸形不计不变。范围只限`src/request.hooks.mjs`、`src/request-measurement.mjs`、`src/protocols.mjs`及关联测试/spec/README/本轮报告。
+- 红灯基线：`manual-review-fix/red-baseline-full.log`，24项中18通过/6失败，exit 1；malformed负例保持通过。Green定向：24/24；完整npm test：Node 64/64、Bun 40/40与集成脚本通过，exit 0。报告及原始日志位于`manual-review-fix/`。当前待主代理重新独立复审；不表示production/Task3完成。

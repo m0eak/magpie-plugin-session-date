@@ -9,7 +9,7 @@ export function createRequestHook({ store = getStatsStore, protocols = { filterR
     const protocol = ctx?.protocol;
     if (!SUPPORTED.has(protocol)) return undefined;
     const measurement = inspectRequestBody(body, protocol);
-    if (!measurement.valid || !measurement.measurable) return undefined;
+    if (!measurement.valid) return undefined;
 
     const value = now();
     const date = value instanceof Date ? value : new Date(value);
@@ -25,13 +25,15 @@ export function createRequestHook({ store = getStatsStore, protocols = { filterR
     try {
       result = protocols.filterRequest(body, protocol);
     } catch {
-      recordStats({ matched: false, removedLines: 0, at });
+      if (measurement.measurable) recordStats({ matched: false, removedLines: 0, at });
       return undefined;
     }
     if (!result?.supported || !Number.isSafeInteger(result.removedLines) || result.removedLines < 0) return undefined;
 
     const matched = result.removedLines > 0;
-    recordStats({ matched, removedLines: result.removedLines, at });
+    // A safe transform is countable even when unrelated request payloads are
+    // unknown; unknown, unmatched requests remain outside aggregate totals.
+    if (matched || measurement.measurable) recordStats({ matched, removedLines: result.removedLines, at });
     return matched ? result.body : undefined;
   };
 }

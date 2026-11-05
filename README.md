@@ -2,7 +2,7 @@
 
 > **开发中：阶段 2 / 3。** Task 1 纯函数过滤已通过审查；Task 2 request hook、SQLite 聚合存储和 loopback API 已完成本地验收，等待主代理独立审查。尚无真实页面、最终安装包或部署结论；Task2独立审查发现已做本地修复，等待复审；不要安装到生产环境。
 
-此独立插件在 magpie 的公开异步请求 hook 中，对客户端请求中的 LobeHub Memory / Credentials 工具提示词执行窄范围变换：只移除经结构 wrapper 确认的 `<session_context>` 中完整英文 `Session date: Weekday, Month D, YYYY` 行。它不会扫描任意 system prompt、user/assistant/tool 内容、未知字段、图片或非文本块；不做协议转换。插件不保存请求正文、Key、模型、会话、provider、agent 或逐请求明细。统计只包含四协议中通过本插件浅层检查的可计量请求：必要message/input/parts成员、已知role及文本/工具/媒体成员形状须合法；已知结构畸形或成员缺失会透传原请求、不变换、不计数。合法常见user/assistant/tool历史、多模态块和Responses `previous_response_id`续聊可计量。未知扩展字段允许透传；若未知扩展内容块出现在受检容器内、无法按已知形状验证，则整条不计数、不变换，避免把未理解结构误报为有效统计。该浅检查仅定义计量资格，不是完整上游schema validator；filter仍独立只扫描规定的system/developer文字。
+此独立插件在 magpie 的公开异步请求 hook 中，对客户端请求中的 LobeHub Memory / Credentials 工具提示词执行窄范围变换：只移除经结构 wrapper 确认的 `<session_context>` 中完整英文 `Session date: Weekday, Month D, YYYY` 行。它不会扫描任意 system prompt、user/assistant/tool 内容、未知字段、图片或非文本块；不做协议转换。插件不保存请求正文、Key、模型、会话、provider、agent 或逐请求明细。浅层检查用于拒绝已知畸形/unsupported body，并独立决定未命中请求能否计量；合法未知扩展或部分多模态历史不会阻断对已识别 system/developer 文本的安全过滤，且未知无关payload不会被解析或改写。若确实删去目标日期行，该成功变换计入一次processed/matched与实际removed行数，即使无关payload令请求不可完整计量；无命中且不可计量的合法扩展请求不计数。合法常见user/assistant/tool历史、多模态块和Responses `previous_response_id`续聊可计量；已知结构畸形（例如缺必要role/content、错误字段类型或非法已知part）仍原样透传、不变换、不计数。该浅检查不是完整上游schema validator；filter只扫描规定的system/developer文字。
 
 此操作只计提示词变换次数，不代表模型端缓存命中率，也不能保证节省 token 或改善缓存。其他动态提示词、路由和缓存 TTL 仍会影响结果。删除日期可能减弱 Memory 在消息缺少时间戳时的相对时间 fallback。
 
@@ -14,7 +14,7 @@
 - `src/protocols.mjs`：`filterRequest(body, protocol) -> { body, removedLines, supported }`
 - Task 2（本地实现、测试完成，待独立审查）：`src/request.hooks.mjs` 导出公开异步 `onRequest(body, ctx)`；`src/stats-store.mjs` 实现 Bun 内置 SQLite 聚合存储；`src/service-api.mjs` 提供 loopback 只读 API；`index.mjs` 是宿主 server 入口。
 
-支持协议：chat、responses、anthropic、gemini。Chat 文本块使用 `type: text`，Responses 输入文本块使用 `type: input_text`。只检查 system/developer 或协议顶层系统指令位置；Gemini 只检查对象形状 `systemInstruction.parts[].text`，并对错误元数据类型或混合未知 payload fail-open。未知协议及 malformed 内容 fail-open；不扫描其他对象的任意 `text` 字段。
+支持协议：chat、responses、anthropic、gemini。Chat 文本块使用 `type: text`，Responses 输入文本块使用 `type: input_text`；Responses easy input message 接受 `type` 缺省或显式 `message`，但显式未知 `type` 不会冒充message。只检查 system/developer 或协议顶层系统指令位置；Gemini 只检查对象形状 `systemInstruction.parts[].text`，并对错误元数据类型或混合未知 payload fail-open。合法Chat assistant tool-call可省略content或设为null；合法Responses消息可省略type。未知协议及已知畸形内容fail-open；不扫描其他对象的任意 `text` 字段。
 
 ## 聚合 API 契约（供 Task 3）
 

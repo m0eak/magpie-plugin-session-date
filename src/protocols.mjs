@@ -82,7 +82,7 @@ function filterResponses(body) {
   let input = body.input;
   for (let index = 0; index < body.input.length; index += 1) {
     const item = body.input[index];
-    if (!isRecord(item) || item.type !== 'message' || !['system', 'developer'].includes(item.role)) continue;
+    if (!isRecord(item) || (item.type !== undefined && item.type !== 'message') || !['system', 'developer'].includes(item.role)) continue;
 
     let nextItem = item;
     if (typeof item.content === 'string') {
