@@ -1,0 +1,2280 @@
+# Task 3 diff metadata
+
+BASE=f55c1bcc84297da4147fbf712ac0a1a365296822
+HEAD=4a474e3dfa8b87da9d339b96ea0b28e47dd65b9c
+
+ .superpowers/sdd/session-date-filter/progress.md   |  54 +--
+ .../session-date-filter/task-3-bridge-green.log    |  16 +
+ .../sdd/session-date-filter/task-3-brief.md        |  20 +
+ .../session-date-filter/task-3-green-focused.log   |  16 +
+ .../session-date-filter/task-3-node-focused.log    |  40 ++
+ .../sdd/session-date-filter/task-3-npm-test.log    | 502 +++++++++++++++++++++
+ .../session-date-filter/task-3-pack-dry-run.json   | 101 +++++
+ .../sdd/session-date-filter/task-3-pack-smoke.log  |   7 +
+ .../sdd/session-date-filter/task-3-pack.log        |  31 ++
+ .../sdd/session-date-filter/task-3-red.log         |  37 ++
+ .../sdd/session-date-filter/task-3-report.md       |  46 ++
+ README.md                                          |  71 ++-
+ .../lobehub-plugin-session-date-filter-0.1.0.tgz   | Bin 0 -> 23674 bytes
+ index.mjs                                          |  20 +-
+ package.json                                       |  24 +-
+ page/app.mjs                                       |  54 +++
+ page/boot.js                                       |  18 +
+ page/index.html                                    |  18 +
+ page/service.html                                  |  24 +
+ page/style.css                                     |  28 ++
+ src/page-bridge.mjs                                |  78 ++++
+ src/service-api.mjs                                | 123 +++--
+ src/stats-ui.mjs                                   |  82 ++++
+ test/task3-bridge.test.mjs                         |  50 ++
+ test/task3-ui.test.mjs                             |  87 ++++
+ 25 files changed, 1390 insertions(+), 157 deletions(-)
+
+--- full diff follows ---
+diff --git a/.superpowers/sdd/session-date-filter/progress.md b/.superpowers/sdd/session-date-filter/progress.md
+index e8c9f55..4e9b687 100644
+--- a/.superpowers/sdd/session-date-filter/progress.md
++++ b/.superpowers/sdd/session-date-filter/progress.md
+@@ -1,46 +1,14 @@
+-# Session Date Filter — SDD 阶段账本
+ 
+-## Task 1 — 独立插件基础与纯函数过滤器
+-- 状态：修复轮 3 已实现并通过验证，待定向复审
+-- 分支：`feature/session-date-filter`
+-- 初始目标路径检查：不存在；因此创建新工程
+-- 开发工具：Node、Bun、Git 均已存在（Node v22.23.0、Bun 1.3.10、Git 2.43.0）；未安装依赖/软件
+-- 只读模板核验：Memory `packages/builtin-tool-memory/src/systemRole.ts:1-8`；Credentials `packages/builtin-tool-creds/src/systemRole.ts:1-8`；外层 `<tools>` `packages/prompts/src/prompts/plugin/index.ts:8-10`；`<tool>` / `<tool.instructions>` `packages/prompts/src/prompts/plugin/tools.ts:15-23`
+-- Task 1 TDD Red：`node --test test/matcher.test.mjs test/protocols.test.mjs` 在无实现阶段退出码 1（module-not-found）；增加占位 exports 后，同一命令退出码 1（29 tests，17 个功能断言失败，失败指向 matcher/protocols 行为缺失）。
+-- Task 1 Green：`node --test test/matcher.test.mjs test/protocols.test.mjs` 与 `npm test` 均退出码 0，36/36 通过。
+-- 质量门：ESM syntax check、`npm pack --dry-run`、4 文件 package 白名单断言和 `git diff --check` 均退出码 0。
+-- 未执行：Task 2/3、hook/stats/service/UI/manifest、部署/联网/SSH/生产数据访问。
+-- 修复轮 1 TDD：先新增 C1/I1/I2/I3/M1 回归测试；`node --test test/matcher.test.mjs test/protocols.test.mjs` 在修复前退出码 1，44 tests / 37 pass / 7 fail。原始 stdout+stderr 合并日志：`task-1-fix-1-red.log`。不改写初次 Task 1 缺少原始日志的历史事实。
+-- 修复轮 1 Green：定向 suite 45/45 通过，日志：`task-1-fix-1-green.log`。
+-- 处理：C1 逐个原样追加扫描区间（包含匹配前跳过 wrapper、未闭合尾部）；Chat 只接收 text discriminator，Responses 保留 input_text；Gemini 不处理顶层字符串，只处理 systemInstruction.parts 中 text，且校验 thought boolean / thoughtSignature string；M1 用 setUTCFullYear 兼容 0001–0099 并保留 weekday/month/day 校验。
+-- 修复轮 2 TDD：在旧实现上先运行 matcher 专项测试，退出码 1（33 tests / 29 pass / 4 fail），复现未闭合外层内嵌目标、完整非目标外层内嵌多个目标、malformed 前后边界及 nested/unmatched close。日志 `task-1-fix-2-red.log`。
+-- 修复轮 2 Green：定向 matcher+protocol 50/50、全量 npm 50/50；日志 `task-1-fix-2-green.log` / `task-1-fix-2-full-test.log`。
+-- 修复轮 2 策略：先扫描并验证整个文本的顶层 `<tools>` 标签结构；任何嵌套/未配对/非完整 closing 标签使整段 fail-open；平级完整合法 wrapper 逐个过滤。残余 tradeoff：malformed 结构会连带跳过其他平级合法 wrapper，以确保无意外删改。
+-- 修复轮 3 TDD：新增 blockquote/fenced-code 伪 closing 的精确原文断言；旧实现 `node --test test/matcher.test.mjs` 退出码 1，35 tests / 33 pass / 2 fail。日志 `task-1-fix-3-red.log`。
+-- 修复轮 3 Green：matcher 35/35、全量 npm suite 52/52；日志 `task-1-fix-3-green.log` / `task-1-fix-3-full-test.log`。closing 标签保护行现在 fail-open，不会伪关闭 `<tools>` 外层。
+-- 当前：修复轮 3 已提交（`2b174713bc093d9482a4e06ed11d88d022da2652`），matcher 35/35、完整 npm suite 52/52。复审包已生成，等待主代理定向复审；不宣称 clean。
++## Task 3 — 统计页、page.service manifest 与本地安装包
++- 执行基线：`f55c1bcc84297da4147fbf712ac0a1a365296822`，branch `feature/session-date-filter`；Task 3实现提交与最终本地包/补丁结果见 `task-3-report.md`。
++- 页面链路：初始iframe只握手官方宿主bridge，取得service代理后导航；service页再次连接hello/theme/visibility消息桥，读固定只读统计API。服务固定loopback，manifest端口和server options一致。真实宿主代理与浏览器尚未验证，由独立最终验收覆盖；源宿主契约说明web模式才给bridge service，桌面模式可能无service，不能声称桌面支持。
++- 完整 `npm test` 最终exit0：Node 70 pass/0 fail/1 Bun-only skip；Bun Task2 40/40含8轮多进程SQLite；Bun Task3 7/7（page bridge + UI + 本地service）；Task2 Bun integration通过。语法、diff-check、pack白名单均本地通过。tarball与SHA在Task3报告中。
++- 未部署、未发布、未实装到宿主、未编译宿主或启动浏览器；等待独立验收。本结论不等于review clean。
+ 
+ 
+-## Task 2 — request hook、统计存储与只读 service API
+-- fix2独立定向复审与中间验收：BASE `2f1a01542195bf4a07b10b3b2059c025fc9c94f4`..HEAD `5f816614b2e8df8328e61d8cccf333b3833d864a`，review + middle acceptance clean；I1/I2/I3/M1均ADDRESSED，无新Critical/Important。独立真实Bun合成探针exit0，四协议精确计数见 `task-2-fix-acceptance/review.md` 与原始 `acceptance-20261105.raw.log`。仅Task3真实宿主loader/page/UI与生产部署仍未验证；未启动Task3。原有untracked logs/debug DB均保留，本轮只新增 `task-2-fix-acceptance/` 证据目录。
+-- 当前Task2交付基线为 `2f1a01542195bf4a07b10b3b2059c025fc9c94f4`；fix1为`c3cf88c3102e86d937955d8e064a7307b07597e2`，fix2前HEAD为`5ced8e0b8b55954e962dd733c1d96a6580e7e44d`。fix2本地提交及完整复审补丁均在Task2报告中登记。历史probe/报告/DB/WAL等untracked证据原位保留，未清理。
+-- 根因沿用完整诊断 `.superpowers/sdd/session-date-filter/task-2-diagnosis/diagnosis.md`：deferred seed INSERT竞争导致first-open丢pending；旧5秒busy handler同步卡event loop；Node默认发现混跑Bun测试/fixture。本轮新red：`task-2-recovery-red-baseline.log`，Bun 12/13、exit1，失败为真实并发writer SQLITE_BUSY。
+-- 修复：IMMEDIATE schema+seed事务；初始化WAL/schema/seed busy上限10ms，运行期flush busy上限2ms；request hook经microtask只做内存计数。后台有限退避（25/75/200/500/1000ms，总窗口2秒、timer unref），失败保留pending，事务提交后只消费提交快照；成功边界为事务commit，无snapshot重提delta。坏schema/数据范围异常不静默清零。详情/边界见 `task-2-report.md` 和 `task-2-recovery-brief.md`。
+-- 宿主只读契约（参考HEAD `50265256ba56ac164a680da0689e1c6d90dac471`）：`host.js:1323` 调用 `fn(input,p.options)`；`input.directory=settings.Dir()` 见 `host.go:1133-1160`。插件服务端第二参数才是package options。PluginHost reload由Go关闭Bun子进程（`host.go:538-560,904-925`），不发现插件dispose回调；故不宣称强制stop能等异步flush。page.service需真实page，Task2无page entry。
+-- 验收（Bun1.3.10 / SQLite3.51.2）：`node --test test/matcher.test.mjs test/protocols.test.mjs` 57/57；`bun test test/task2.test.mjs` 19/19；`bun run test/task2-integration.bun.mjs`通过；最终`npm test` exit0（上述三组串行短路）。Bun多进程8轮均4/4 writer ok，5 fresh +3 seeded，每轮100/52/52/48精确。真实BEGIN IMMEDIATE锁下同步busy等待配置2ms、冷request hook实测约0.24ms且DB仍未打开；单次首次flush Promise总用时11.412ms，20ms heartbeat实测24.298ms；释放锁后约7.214ms自动commit，无手动flush/重复。此为合成环境实测，不是普遍性能保证。
+-- 质量门：所有本轮JS语法检查、`git diff --check`、`npm pack --dry-run`均exit0。npm包仅8文件，不含测试、test-data、诊断和日志。测试路径在工程内，Task2 pid目录finally清理；起始debug/test-data全部保留。最终测试日志：`task-2-recovery-green-node-final.log`、`task-2-recovery-green-bun6.log`、`task-2-recovery-green-integration-final.log`、`task-2-recovery-green-suite-final.log`；质量日志`task-2-recovery-git-diff-check.log`、`task-2-recovery-pack-final.log`。
+-- 本轮fix1依据独立审查报告`task-2-acceptance/task-2-review.md`修复I1浅层可计量结构、I2 OPTIONS先path/query allowlist、I3 listener启动失败仅统计部分降级；spec已追加主代理Ruling。详情/命令/日志见`task-2-report.md` fix1节；red日志`task-2-fix-1-red-i1.log`、`task-2-fix-1-red-i2.log`、`task-2-fix-1-red-i3.log`；green定向21/21、完整`npm test` Node57/57+Bun38/38+integration exit0，日志`task-2-fix-1-green-focused.log`、`task-2-fix-1-green-full.log`。
+-
+-- 修复轮 4 TDD：旧 HEAD 上 matcher 40 项中 35 pass / 5 fail（退出码 1），日志 `task-1-fix-4-red.log`；修复后 matcher 40/40 与 `npm test` 57/57 通过（退出码 0），日志 `task-1-fix-4-green.log` / `task-1-fix-4-full-test.log`。统一在顶层结构扫描前跳过 protected Markdown 行的开/闭 `<tools>` 标签，实际 malformed/unpaired 结构仍整段 fail-open。
+-- 当前：修复轮 4 已提交（`9755c77ceaa12344c2f68f1c34c23ebe32693dbe`），复审结论为 clean；Task 1 阶段一完成。结论不覆盖 Task 2/3。
+-
+-## 最终复审结论
+-
+-- Task 2: complete (review + middle acceptance clean; BASE `2f1a01542195bf4a07b10b3b2059c025fc9c94f4`..HEAD `5f816614b2e8df8328e61d8cccf333b3833d864a`；报告 `task-2-fix-acceptance/review.md`)。未包含Task3宿主真实集成、页面或部署验收。
+-- Task 1: complete (commits eae3285..9755c77, review clean)。阶段一规格符合 PASS、代码质量 PASS；没有启动 Task 2。
+-
+-
+-## Manual review corrections — 核心入口修复中（2026-11-05）
+-- 人工复审在公开hook入口发现此前Task2验收遗漏；既有Task2 PASS仍保留为历史，不作为当前修正后的验收结论。Task3页面开发暂停。
+-- 本轮覆盖Chat tool_calls无content、Responses easy input无type及unknown type不误识别、Gemini inline image/file与合法未知无关payload、已知畸形不计不变。范围只限`src/request.hooks.mjs`、`src/request-measurement.mjs`、`src/protocols.mjs`及关联测试/spec/README/本轮报告。
+-- 红灯基线：`manual-review-fix/red-baseline-full.log`，24项中18通过/6失败，exit 1；malformed负例保持通过。Green定向：24/24；完整npm test：Node 64/64、Bun 40/40与集成脚本通过，exit 0。报告及原始日志位于`manual-review-fix/`。当前待主代理重新独立复审；不表示production/Task3完成。
++## Task 3 — 统计页、page.service manifest 与本地安装包
++- 执行基线：`f55c1bcc84297da4147fbf712ac0a1a365296822`，branch `feature/session-date-filter`；Task 3实现提交与最终本地包/补丁结果见 `task-3-report.md`。
++- 页面链路：初始iframe只握手官方宿主bridge，取得service代理后导航；service页再次连接hello/theme/visibility消息桥，读固定只读统计API。服务固定loopback，manifest端口和server options一致。真实宿主代理与浏览器尚未验证，由独立最终验收覆盖；源宿主契约说明web模式才给bridge service，桌面模式可能无service，不能声称桌面支持。
++- 完整 `npm test` 最终exit0：Node 70 pass/0 fail/1 Bun-only skip；Bun Task2 40/40含8轮多进程SQLite；Bun Task3 7/7（page bridge + UI + 本地service）；Task2 Bun integration通过。语法、diff-check、pack白名单均本地通过。tarball与SHA在Task3报告中。
++- 最终解包tarball的Bun service smoke：固定6个资源路径全部200、CSP含合成uiOrigin，exit0；日志 `task-3-pack-smoke.log`。非真实宿主安装。
++- 未部署、未发布、未实装到宿主、未编译宿主或启动浏览器；等待独立验收。本结论不等于review clean。
+diff --git a/.superpowers/sdd/session-date-filter/task-3-bridge-green.log b/.superpowers/sdd/session-date-filter/task-3-bridge-green.log
+new file mode 100644
+index 0000000..5d6a7f9
+--- /dev/null
++++ b/.superpowers/sdd/session-date-filter/task-3-bridge-green.log
+@@ -0,0 +1,16 @@
++bun test v1.3.10 (30e609e0)
++
++test/task3-ui.test.mjs:
++(pass) stats schema accepts consistent counts and nullable UTC timestamps [2.00ms]
++(pass) stats schema rejects alien, malformed, unsafe and inconsistent data
++(pass) poller marks initial network failure unavailable, keeps stale success, times out without overlap and pauses when hidden [17.00ms]
++(pass) manifest and initial page use real page bridge and service navigation without direct API fetch [2.00ms]
++(pass) service serves only fixed static assets and read-only stats with bearer auth [10.00ms]
++
++test/task3-bridge.test.mjs:
++(pass) bridge accepts only parent handshake and tracks theme plus host visibility
++(pass) bridge timeout fails closed and tears down its listener [6.00ms]
++
++ 7 pass
++ 0 fail
++Ran 7 tests across 2 files. [97.00ms]
+diff --git a/.superpowers/sdd/session-date-filter/task-3-brief.md b/.superpowers/sdd/session-date-filter/task-3-brief.md
+new file mode 100644
+index 0000000..b8573dc
+--- /dev/null
++++ b/.superpowers/sdd/session-date-filter/task-3-brief.md
+@@ -0,0 +1,20 @@
++# Task 3 Brief — 页面、完整 manifest 与本地包
++
++## 目标与约束
++在 `feature/session-date-filter` 的批准 BASE `f55c1bcc84297da4147fbf712ac0a1a365296822` 上实现紧凑只读统计页、宿主真实 page/service manifest、严格只读资产/统计路由、Node/Bun测试、安装说明和本地可安装 tarball。不得修改宿主、部署、发布、联网生产、泄漏或移除 service token，不删除历史证据。保留工作区已有 progress 与未跟踪历史资产；只精确暂存本任务文件。
++
++## 设计决策
++- 宿主 page shell `page/index.html` 载入官方 `_magpie/bridge.js` 与本地 `boot.js`。遵循 page-fingerprint：await `window.magpie.ready`，读取 `window.magpie.service`，将受校验的代理 origin 放进 service 导航 query `uiOrigin`，再 `location.replace(service + query)`；service 页面由本机服务提供 HTML/CSS/JS 与 read-only API，因此使用宿主 `page.service` 的代理调整 CSP，而非从初始 `connect-src 'none'` iframe 直接 fetch。只在有 bridge service 时运行；不使用固定生产地址或 localhost fallback。
++- Manifest按宿主 `PageSpec` / `ServiceSpec` 使用 `page.file`, `page.service.port=3479`, `option=sessionDateFilterPort`；服务从 server options 读同名端口，默认3479，插件没有多余options声明，不新增permissions。UI页和service资源页是不同角色。
++- API仅 `GET /api/stats`、`GET /health`、合法 `OPTIONS`；静态资产用固定路由 map：`/`, `/app.mjs`, `/style.css`，拒绝其他path、query与错误Host/Origin/method；API校验Bearer，允许合法Origin-null预检及Authorization/Content-Type，保持宿主 token/proxy，不增加自定义header。响应使用固定内容，不从请求拼接磁盘路径。
++- UI按用户确认的宿主原生紧凑风格；`textContent`、安全计数/关系和UTC schema校验，主题读 service URL 的 `theme`/`lang` query（不直接依赖被service导航丢弃的iframe bridge），5s可见轮询、单飞/有界超时/旧值保留、初次失败无假零。无写入/reset/模型请求/正文数据。
++- Node 22与Bun 1.3.10可用。新增测试先red后green；完整 `npm test` 和package审查只在实现稳定后执行。包输出到工程 `dist/`，用临时安全检查确认不覆盖旧产物。
++
++## 宿主依据（只读参考仓库 HEAD `50265256ba56ac164a680da0689e1c6d90dac471`）
++`docs/subsystems/plugin-runtime.md:274`、`internal/plugin/page.go:24-63,170-198,235-268`：`page.service` schema / `ServiceSpec` option取值、真实页面+host部分门槛；`internal/gui/pagebridge.js:1-42,80-92`：service只在ready后经bridge给页面，Theme/Visibility API；`internal/gui/pluginpage.go:223-252,330-365`：初始page CSP `connect-src 'none'`；`internal/gui/pageservice.go:112-180`：代理保留Origin:null、移除Cookie、sandbox响应，并按 `uiOrigin` 允许的来源调整服务页面CSP。官方页样例 `internal/gui/testdata/page-plugin/{package.json,page/index.html,app.js,style.css}`。
++
++## fingerprint参考与安全边界
++社区 `page-fingerprint` boot同样等ready后读取 `window.magpie.service`，设置 `uiOrigin` 后导航service；其service页用Origin校验、Bearer API auth、host allowlist及白名单资产。此插件据此实现最小固定路由，不照抄其大UI或大段实现。
++
++## 验收/剩余
++本轮目标是本地静态/单元集成验证、准确本地CLI安装/卸载说明与tarball；不运行宿主build、不部署、不发布、不做真实浏览器/CSP/远程proxy/真实宿主loader最终验收。另行由主代理安排独立代理执行真实宿主、页面代理及浏览器验收。本 brief 与报告可随该独立验收后续补充，但不得称已上线。
+diff --git a/.superpowers/sdd/session-date-filter/task-3-green-focused.log b/.superpowers/sdd/session-date-filter/task-3-green-focused.log
+new file mode 100644
+index 0000000..059a193
+--- /dev/null
++++ b/.superpowers/sdd/session-date-filter/task-3-green-focused.log
+@@ -0,0 +1,16 @@
++bun test v1.3.10 (30e609e0)
++
++test/task3-bridge.test.mjs:
++(pass) bridge accepts only parent handshake and tracks theme plus host visibility [2.00ms]
++(pass) bridge timeout fails closed and tears down its listener [6.00ms]
++
++test/task3-ui.test.mjs:
++(pass) stats schema accepts consistent counts and nullable UTC timestamps [1.00ms]
++(pass) stats schema rejects alien, malformed, unsafe and inconsistent data
++(pass) poller marks initial network failure unavailable, keeps stale success, times out without overlap and pauses when hidden [18.00ms]
++(pass) manifest and initial page use the real page bridge service handoff [1.00ms]
++(pass) service serves fixed assets and read-only authenticated API with proxy CSP [9.00ms]
++
++ 7 pass
++ 0 fail
++Ran 7 tests across 2 files. [81.00ms]
+diff --git a/.superpowers/sdd/session-date-filter/task-3-node-focused.log b/.superpowers/sdd/session-date-filter/task-3-node-focused.log
+new file mode 100644
+index 0000000..431b270
+--- /dev/null
++++ b/.superpowers/sdd/session-date-filter/task-3-node-focused.log
+@@ -0,0 +1,40 @@
++TAP version 13
++# Subtest: stats schema accepts consistent counts and nullable UTC timestamps
++ok 1 - stats schema accepts consistent counts and nullable UTC timestamps
++  ---
++  duration_ms: 2.508622
++  type: 'test'
++  ...
++# Subtest: stats schema rejects alien, malformed, unsafe and inconsistent data
++ok 2 - stats schema rejects alien, malformed, unsafe and inconsistent data
++  ---
++  duration_ms: 0.810874
++  type: 'test'
++  ...
++# Subtest: poller marks initial network failure unavailable, keeps stale success, times out without overlap and pauses when hidden
++ok 3 - poller marks initial network failure unavailable, keeps stale success, times out without overlap and pauses when hidden
++  ---
++  duration_ms: 16.023421
++  type: 'test'
++  ...
++# Subtest: manifest and initial page use real page bridge and service navigation without direct API fetch
++ok 4 - manifest and initial page use real page bridge and service navigation without direct API fetch
++  ---
++  duration_ms: 4.546013
++  type: 'test'
++  ...
++# Subtest: service serves only fixed static assets and read-only stats with bearer auth
++ok 5 - service serves only fixed static assets and read-only stats with bearer auth # SKIP
++  ---
++  duration_ms: 0.199781
++  type: 'test'
++  ...
++1..5
++# tests 5
++# suites 0
++# pass 4
++# fail 0
++# cancelled 0
++# skipped 1
++# todo 0
++# duration_ms 104.03639
+diff --git a/.superpowers/sdd/session-date-filter/task-3-npm-test.log b/.superpowers/sdd/session-date-filter/task-3-npm-test.log
+new file mode 100644
+index 0000000..3570aba
+--- /dev/null
++++ b/.superpowers/sdd/session-date-filter/task-3-npm-test.log
+@@ -0,0 +1,502 @@
++
++> lobehub-plugin-session-date-filter@0.1.0 test
++> node --test test/matcher.test.mjs test/protocols.test.mjs test/manual-review-fix.test.mjs test/task3-ui.test.mjs test/task3-bridge.test.mjs && bun test test/task2.test.mjs test/task3-ui.test.mjs test/task3-bridge.test.mjs && bun run test/task2-integration.bun.mjs
++
++TAP version 13
++# Subtest: public hook filters Chat system date with assistant tool_calls missing content
++ok 1 - public hook filters Chat system date with assistant tool_calls missing content
++  ---
++  duration_ms: 5.047994
++  type: 'test'
++  ...
++# Subtest: public hook filters Responses easy input messages without type
++ok 2 - public hook filters Responses easy input messages without type
++  ---
++  duration_ms: 1.279622
++  type: 'test'
++  ...
++# Subtest: public hook filters Gemini system date beside recognized image and file parts
++ok 3 - public hook filters Gemini system date beside recognized image and file parts
++  ---
++  duration_ms: 1.444639
++  type: 'test'
++  ...
++# Subtest: public hook filters known system text despite unrelated unknown user payload and counts the transform
++ok 4 - public hook filters known system text despite unrelated unknown user payload and counts the transform
++  ---
++  duration_ms: 1.082811
++  type: 'test'
++  ...
++# Subtest: public hook does not count valid unknown unmatched payloads
++ok 5 - public hook does not count valid unknown unmatched payloads
++  ---
++  duration_ms: 0.523077
++  type: 'test'
++  ...
++# Subtest: public hook filters Responses system text but leaves an unknown typed item untouched
++ok 6 - public hook filters Responses system text but leaves an unknown typed item untouched
++  ---
++  duration_ms: 0.744944
++  type: 'test'
++  ...
++# Subtest: public hook leaves malformed request wholly unchanged and uncounted
++ok 7 - public hook leaves malformed request wholly unchanged and uncounted
++  ---
++  duration_ms: 0.713203
++  type: 'test'
++  ...
++# Subtest: removes the date only inside the Memory session context
++ok 8 - removes the date only inside the Memory session context
++  ---
++  duration_ms: 4.407094
++  type: 'test'
++  ...
++# Subtest: removes the date only inside the Credentials session context
++ok 9 - removes the date only inside the Credentials session context
++  ---
++  duration_ms: 0.450236
++  type: 'test'
++  ...
++# Subtest: preserves line indentation, trailing horizontal space, and CRLF bytes
++ok 10 - preserves line indentation, trailing horizontal space, and CRLF bytes
++  ---
++  duration_ms: 0.438458
++  type: 'test'
++  ...
++# Subtest: removes multiple matching lines in multiple supported tools
++ok 11 - removes multiple matching lines in multiple supported tools
++  ---
++  duration_ms: 0.543342
++  type: 'test'
++  ...
++# Subtest: keeps identical date text outside the exact tools wrapper
++ok 12 - keeps identical date text outside the exact tools wrapper
++  ---
++  duration_ms: 0.3288
++  type: 'test'
++  ...
++# Subtest: preserves skipped wrappers before a later matching wrapper exactly
++ok 13 - preserves skipped wrappers before a later matching wrapper exactly
++  ---
++  duration_ms: 0.313213
++  type: 'test'
++  ...
++# Subtest: fails open when a blockquote closing tag is the only outer tools close
++ok 14 - fails open when a blockquote closing tag is the only outer tools close
++  ---
++  duration_ms: 0.354287
++  type: 'test'
++  ...
++# Subtest: fails open when a fenced closing tag is the only outer tools close
++ok 15 - fails open when a fenced closing tag is the only outer tools close
++  ---
++  duration_ms: 0.357014
++  type: 'test'
++  ...
++# Subtest: fails open for a target wrapper nested inside an unterminated outer tools tag
++ok 16 - fails open for a target wrapper nested inside an unterminated outer tools tag
++  ---
++  duration_ms: 2.434259
++  type: 'test'
++  ...
++# Subtest: fails open for multiple target wrappers nested inside a complete non-target tools tag
++ok 17 - fails open for multiple target wrappers nested inside a complete non-target tools tag
++  ---
++  duration_ms: 0.759504
++  type: 'test'
++  ...
++# Subtest: fails open on malformed tools regions before or after otherwise legal wrappers
++ok 18 - fails open on malformed tools regions before or after otherwise legal wrappers
++  ---
++  duration_ms: 0.50366
++  type: 'test'
++  ...
++# Subtest: fails open for nested closes and unmatched tools closing tags
++ok 19 - fails open for nested closes and unmatched tools closing tags
++  ---
++  duration_ms: 0.320782
++  type: 'test'
++  ...
++# Subtest: filters multiple flat valid tools wrappers while preserving every wrapper boundary
++ok 20 - filters multiple flat valid tools wrappers while preserving every wrapper boundary
++  ---
++  duration_ms: 0.318112
++  type: 'test'
++  ...
++# Subtest: preserves an unterminated wrapper after a matching wrapper exactly
++ok 21 - preserves an unterminated wrapper after a matching wrapper exactly
++  ---
++  duration_ms: 0.245174
++  type: 'test'
++  ...
++# Subtest: preserves skipped wrappers between two matching wrappers exactly
++ok 22 - preserves skipped wrappers between two matching wrappers exactly
++  ---
++  duration_ms: 0.348192
++  type: 'test'
++  ...
++# Subtest: preserves multiple skipped wrappers and ordinary text before a match
++ok 23 - preserves multiple skipped wrappers and ordinary text before a match
++  ---
++  duration_ms: 0.248427
++  type: 'test'
++  ...
++# Subtest: returns a zero-match input byte-for-byte unchanged after multiple skipped candidates
++ok 24 - returns a zero-match input byte-for-byte unchanged after multiple skipped candidates
++  ---
++  duration_ms: 0.197055
++  type: 'test'
++  ...
++# Subtest: keeps a fake target tree nested beneath a non-target tool untouched
++ok 25 - keeps a fake target tree nested beneath a non-target tool untouched
++  ---
++  duration_ms: 0.22999
++  type: 'test'
++  ...
++# Subtest: does not remove a date when a target tools wrapper is nested in a non-target tools block
++ok 26 - does not remove a date when a target tools wrapper is nested in a non-target tools block
++  ---
++  duration_ms: 0.249123
++  type: 'test'
++  ...
++# Subtest: does not treat a similarly named non-target tool as a supported wrapper
++ok 27 - does not treat a similarly named non-target tool as a supported wrapper
++  ---
++  duration_ms: 0.203946
++  type: 'test'
++  ...
++# Subtest: does not broaden to a tools wrapper with a different description
++ok 28 - does not broaden to a tools wrapper with a different description
++  ---
++  duration_ms: 0.158683
++  type: 'test'
++  ...
++# Subtest: does not remove dates from ordinary system prompt text without wrappers
++ok 29 - does not remove dates from ordinary system prompt text without wrappers
++  ---
++  duration_ms: 0.137623
++  type: 'test'
++  ...
++# Subtest: does not remove quoted or fenced date examples inside the target area
++ok 30 - does not remove quoted or fenced date examples inside the target area
++  ---
++  duration_ms: 0.22906
++  type: 'test'
++  ...
++# Subtest: does not remove dates from an indented Markdown blockquote continuation
++ok 31 - does not remove dates from an indented Markdown blockquote continuation
++  ---
++  duration_ms: 0.16279
++  type: 'test'
++  ...
++# Subtest: does not remove lines wrapped in same-line backtick or tilde fences
++ok 32 - does not remove lines wrapped in same-line backtick or tilde fences
++  ---
++  duration_ms: 0.369322
++  type: 'test'
++  ...
++# Subtest: does not recognize a target wrapper when the outer template is inside a fenced code block
++ok 33 - does not recognize a target wrapper when the outer template is inside a fenced code block
++  ---
++  duration_ms: 0.190435
++  type: 'test'
++  ...
++# Subtest: does not remove current-date, ISO-date, non-English, or malformed calendar lines
++ok 34 - does not remove current-date, ISO-date, non-English, or malformed calendar lines
++  ---
++  duration_ms: 0.229449
++  type: 'test'
++  ...
++# Subtest: keeps tags split by line indentation in the same XML tree valid
++ok 35 - keeps tags split by line indentation in the same XML tree valid
++  ---
++  duration_ms: 0.184629
++  type: 'test'
++  ...
++# Subtest: removes a matching line while preserving unrelated line separators exactly
++ok 36 - removes a matching line while preserving unrelated line separators exactly
++  ---
++  duration_ms: 0.240134
++  type: 'test'
++  ...
++# Subtest: does not throw on malformed or unclosed prompt wrappers
++ok 37 - does not throw on malformed or unclosed prompt wrappers
++  ---
++  duration_ms: 0.179959
++  type: 'test'
++  ...
++# Subtest: leaves a date untouched when only part of its wrapper is present
++ok 38 - leaves a date untouched when only part of its wrapper is present
++  ---
++  duration_ms: 0.240266
++  type: 'test'
++  ...
++# Subtest: is idempotent after removing a session date line
++ok 39 - is idempotent after removing a session date line
++  ---
++  duration_ms: 0.424281
++  type: 'test'
++  ...
++# Subtest: passes through non-string inputs without scanning them
++ok 40 - passes through non-string inputs without scanning them
++  ---
++  duration_ms: 0.221941
++  type: 'test'
++  ...
++# Subtest: supports valid early years without Date.UTC year remapping
++ok 41 - supports valid early years without Date.UTC year remapping
++  ---
++  duration_ms: 0.485551
++  type: 'test'
++  ...
++# Subtest: removes a dynamically different valid date without hard-coding one day
++ok 42 - removes a dynamically different valid date without hard-coding one day
++  ---
++  duration_ms: 0.454128
++  type: 'test'
++  ...
++# Subtest: filters a complete wrapper before a protected blockquote close suffix
++ok 43 - filters a complete wrapper before a protected blockquote close suffix
++  ---
++  duration_ms: 0.330396
++  type: 'test'
++  ...
++# Subtest: filters a complete wrapper before a protected fenced close suffix
++ok 44 - filters a complete wrapper before a protected fenced close suffix
++  ---
++  duration_ms: 0.248121
++  type: 'test'
++  ...
++# Subtest: ignores a protected close before a later complete wrapper
++ok 45 - ignores a protected close before a later complete wrapper
++  ---
++  duration_ms: 0.250934
++  type: 'test'
++  ...
++# Subtest: ignores protected opening and closing examples between flat wrappers
++ok 46 - ignores protected opening and closing examples between flat wrappers
++  ---
++  duration_ms: 0.331315
++  type: 'test'
++  ...
++# Subtest: ignores protected opening and closing examples while a real wrapper is active
++ok 47 - ignores protected opening and closing examples while a real wrapper is active
++  ---
++  duration_ms: 0.248694
++  type: 'test'
++  ...
++# Subtest: filters chat system and developer string contents only
++ok 48 - filters chat system and developer string contents only
++  ---
++  duration_ms: 5.195109
++  type: 'test'
++  ...
++# Subtest: filters only explicit chat text content blocks and preserves metadata
++ok 49 - filters only explicit chat text content blocks and preserves metadata
++  ---
++  duration_ms: 1.364821
++  type: 'test'
++  ...
++# Subtest: treats Chat input_text as an unsupported block while retaining source identity
++ok 50 - treats Chat input_text as an unsupported block while retaining source identity
++  ---
++  duration_ms: 0.222535
++  type: 'test'
++  ...
++# Subtest: leaves malformed chat blocks fail-open while processing a valid sibling
++ok 51 - leaves malformed chat blocks fail-open while processing a valid sibling
++  ---
++  duration_ms: 0.480819
++  type: 'test'
++  ...
++# Subtest: filters Responses instructions and system/developer message input
++ok 52 - filters Responses instructions and system/developer message input
++  ---
++  duration_ms: 0.999543
++  type: 'test'
++  ...
++# Subtest: filters Anthropic top-level system text and explicit text blocks only
++ok 53 - filters Anthropic top-level system text and explicit text blocks only
++  ---
++  duration_ms: 0.419071
++  type: 'test'
++  ...
++# Subtest: filters Gemini systemInstruction string and legal text parts only
++ok 54 - filters Gemini systemInstruction string and legal text parts only
++  ---
++  duration_ms: 0.727344
++  type: 'test'
++  ...
++# Subtest: leaves Gemini systemInstruction string and unknown shapes unchanged
++ok 55 - leaves Gemini systemInstruction string and unknown shapes unchanged
++  ---
++  duration_ms: 0.365207
++  type: 'test'
++  ...
++# Subtest: leaves Gemini text parts with malformed known metadata untouched
++ok 56 - leaves Gemini text parts with malformed known metadata untouched
++  ---
++  duration_ms: 0.695216
++  type: 'test'
++  ...
++# Subtest: returns the original body reference for known protocol requests without a match
++ok 57 - returns the original body reference for known protocol requests without a match
++  ---
++  duration_ms: 0.611942
++  type: 'test'
++  ...
++# Subtest: returns an unsupported protocol unchanged without guessing
++ok 58 - returns an unsupported protocol unchanged without guessing
++  ---
++  duration_ms: 0.383344
++  type: 'test'
++  ...
++# Subtest: treats malformed bodies and fields as supported-protocol fail-open
++ok 59 - treats malformed bodies and fields as supported-protocol fail-open
++  ---
++  duration_ms: 0.314282
++  type: 'test'
++  ...
++# Subtest: does not mutate the original request or nested cache metadata
++ok 60 - does not mutate the original request or nested cache metadata
++  ---
++  duration_ms: 0.607233
++  type: 'test'
++  ...
++# Subtest: counts multiple blocks but does not join text across blocks
++ok 61 - counts multiple blocks but does not join text across blocks
++  ---
++  duration_ms: 0.379787
++  type: 'test'
++  ...
++# Subtest: preserves chat and Responses cache metadata on changed text blocks
++ok 62 - preserves chat and Responses cache metadata on changed text blocks
++  ---
++  duration_ms: 0.422388
++  type: 'test'
++  ...
++# Subtest: does not join wrappers across adjacent protocol content blocks
++ok 63 - does not join wrappers across adjacent protocol content blocks
++  ---
++  duration_ms: 0.216052
++  type: 'test'
++  ...
++# Subtest: keeps empty text blocks and removes only the line inside each matched block
++ok 64 - keeps empty text blocks and removes only the line inside each matched block
++  ---
++  duration_ms: 0.253678
++  type: 'test'
++  ...
++# Subtest: bridge accepts only parent handshake and tracks theme plus host visibility
++ok 65 - bridge accepts only parent handshake and tracks theme plus host visibility
++  ---
++  duration_ms: 3.080981
++  type: 'test'
++  ...
++# Subtest: bridge timeout fails closed and tears down its listener
++ok 66 - bridge timeout fails closed and tears down its listener
++  ---
++  duration_ms: 7.404296
++  type: 'test'
++  ...
++# Subtest: stats schema accepts consistent counts and nullable UTC timestamps
++ok 67 - stats schema accepts consistent counts and nullable UTC timestamps
++  ---
++  duration_ms: 2.122464
++  type: 'test'
++  ...
++# Subtest: stats schema rejects alien, malformed, unsafe and inconsistent data
++ok 68 - stats schema rejects alien, malformed, unsafe and inconsistent data
++  ---
++  duration_ms: 1.143268
++  type: 'test'
++  ...
++# Subtest: poller marks initial network failure unavailable, keeps stale success, times out without overlap and pauses when hidden
++ok 69 - poller marks initial network failure unavailable, keeps stale success, times out without overlap and pauses when hidden
++  ---
++  duration_ms: 16.907118
++  type: 'test'
++  ...
++# Subtest: manifest and initial page use the real page bridge service handoff
++ok 70 - manifest and initial page use the real page bridge service handoff
++  ---
++  duration_ms: 8.274257
++  type: 'test'
++  ...
++# Subtest: service serves fixed assets and read-only authenticated API with proxy CSP
++ok 71 - service serves fixed assets and read-only authenticated API with proxy CSP # SKIP
++  ---
++  duration_ms: 0.516252
++  type: 'test'
++  ...
++1..71
++# tests 71
++# suites 0
++# pass 70
++# fail 0
++# cancelled 0
++# skipped 1
++# todo 0
++# duration_ms 164.443711
++bun test v1.3.10 (30e609e0)
++
++test/task2.test.mjs:
++(pass) onRequest filters a supported body without mutating it and records one matched request [55.00ms]
++(pass) onRequest counts each supported protocol request once [14.00ms]
++(pass) request measurement leaves malformed chat-empty-member uncounted and unchanged [10.00ms]
++(pass) request measurement leaves malformed chat-null-member uncounted and unchanged [8.00ms]
++(pass) request measurement leaves malformed chat-missing-role uncounted and unchanged [9.00ms]
++(pass) request measurement leaves malformed chat-missing-content uncounted and unchanged [10.00ms]
++(pass) request measurement leaves malformed chat-bad-content-type uncounted and unchanged [7.00ms]
++(pass) request measurement leaves malformed chat-empty-text-part uncounted and unchanged [8.00ms]
++(pass) request measurement leaves malformed responses-empty-member uncounted and unchanged [8.00ms]
++(pass) request measurement leaves malformed responses-message-missing-role uncounted and unchanged [8.00ms]
++(pass) request measurement leaves malformed responses-empty-text-part uncounted and unchanged [9.00ms]
++(pass) request measurement leaves malformed responses-bad-instructions uncounted and unchanged [8.00ms]
++(pass) request measurement leaves malformed anthropic-invalid-role uncounted and unchanged [8.00ms]
++(pass) request measurement leaves malformed anthropic-empty-member uncounted and unchanged [7.00ms]
++(pass) request measurement leaves malformed anthropic-empty-text-part uncounted and unchanged [7.00ms]
++(pass) request measurement leaves malformed gemini-empty-content uncounted and unchanged [7.00ms]
++(pass) request measurement leaves malformed gemini-empty-part uncounted and unchanged [8.00ms]
++(pass) request measurement leaves malformed gemini-bad-role uncounted and unchanged [8.00ms]
++(pass) request measurement accepts valid chat/Responses/Anthropic/Gemini tool histories and continuations [47.00ms]
++(pass) unknown nested content parts pass through but are not counted as measurable [7.00ms]
++(pass) onRequest returns undefined for an unchanged supported body and increments unmatched once [8.00ms]
++(pass) onRequest ignores unsupported and malformed request inputs without counting them [8.00ms]
++(pass) onRequest fail-opens an unexpected matcher error without logging or leaking it [10.00ms]
++(pass) parallel requests aggregate exact processed, matched and removed-line counts [12.00ms]
++LOCK_METRICS={"hookMs":0.181,"firstFlushMs":11.098,"heartbeatDelayMs":24.24,"autoRecoveryMs":8.708}
++(pass) lock failures keep pending, yield the event loop and retry without manual flush [109.00ms]
++(pass) snapshot includes same-host pending data once and concurrent record during flush survives [10.00ms]
++(pass) flush followed by snapshot does not double count pending data [10.00ms]
++(pass) scheduled flush uses an injectable scheduler with the intended 30 second period [11.00ms]
++MULTIPROCESS_ROUNDS=[{"round":0,"fresh":true,"childStatuses":["ok","ok","ok","ok"],"stats":{"processedRequests":100,"matchedRequests":52,"removedLines":52}},{"round":1,"fresh":true,"childStatuses":["ok","ok","ok","ok"],"stats":{"processedRequests":100,"matchedRequests":52,"removedLines":52}},{"round":2,"fresh":true,"childStatuses":["ok","ok","ok","ok"],"stats":{"processedRequests":100,"matchedRequests":52,"removedLines":52}},{"round":3,"fresh":true,"childStatuses":["ok","ok","ok","ok"],"stats":{"processedRequests":100,"matchedRequests":52,"removedLines":52}},{"round":4,"fresh":true,"childStatuses":["ok","ok","ok","ok"],"stats":{"processedRequests":100,"matchedRequests":52,"removedLines":52}},{"round":5,"fresh":false,"childStatuses":["ok","ok","ok","ok"],"stats":{"processedRequests":100,"matchedRequests":52,"removedLines":52}},{"round":6,"fresh":false,"childStatuses":["ok","ok","ok","ok"],"stats":{"processedRequests":100,"matchedRequests":52,"removedLines":52}},{"round":7,"fresh":false,"childStatuses":["ok","ok","ok","ok"],"stats":{"processedRequests":100,"matchedRequests":52,"removedLines":52}}]
++(pass) four fresh database first-open races and three seeded writer races merge exact increments [569.00ms]
++(pass) store reopens committed stats and preserves owner-only database permissions [71.00ms]
++SEEDED_WRITER_STATUSES=["ok","ok","ok","ok"]
++(pass) seeded database four-writer competition preserves each committed batch [69.00ms]
++(pass) store reopens committed stats and preserves owner-only database permissions [10.00ms]
++(pass) stats singleton uses host directory and ignores reconfiguration attempts [10.00ms]
++(pass) corrupt databases and unknown schema degrade without overwrite [17.00ms]
++(pass) invalid store directory degrades safely and does not block request processing [1.00ms]
++(pass) HTTP service is read-only, allows only null/same origin and hides storage errors [15.00ms]
++(pass) service fails safely when database is unavailable and emits only generic degraded status [3.00ms]
++(pass) service listener failures are typed only for known bind errors and unknown startup errors propagate [2.00ms]
++(pass) plugin server propagates unknown listener and snapshot failures without misclassification or leaks [172.00ms]
++(pass) plugin server bind failure degrades statistics but keeps the request hook loaded [12.00ms]
++
++test/task3-bridge.test.mjs:
++(pass) bridge accepts only parent handshake and tracks theme plus host visibility [1.00ms]
++(pass) bridge timeout fails closed and tears down its listener [5.00ms]
++
++test/task3-ui.test.mjs:
++(pass) stats schema accepts consistent counts and nullable UTC timestamps
++(pass) stats schema rejects alien, malformed, unsafe and inconsistent data
++(pass) poller marks initial network failure unavailable, keeps stale success, times out without overlap and pauses when hidden [17.00ms]
++(pass) manifest and initial page use the real page bridge service handoff [2.00ms]
++(pass) service serves fixed assets and read-only authenticated API with proxy CSP [4.00ms]
++
++ 47 pass
++ 0 fail
++Ran 47 tests across 3 files. [1.52s]
++Hook, read-only HTTP service, owner-only permissions and four-process SQLite aggregate passed.
+diff --git a/.superpowers/sdd/session-date-filter/task-3-pack-dry-run.json b/.superpowers/sdd/session-date-filter/task-3-pack-dry-run.json
+new file mode 100644
+index 0000000..edf4040
+--- /dev/null
++++ b/.superpowers/sdd/session-date-filter/task-3-pack-dry-run.json
+@@ -0,0 +1,101 @@
++[
++  {
++    "id": "lobehub-plugin-session-date-filter@0.1.0",
++    "name": "lobehub-plugin-session-date-filter",
++    "version": "0.1.0",
++    "size": 23674,
++    "unpackedSize": 83275,
++    "shasum": "09e91093a7b0908f9798b733a0549df1b1eb6afc",
++    "integrity": "sha512-DiZcTVa64hvJkWRywjQUqdZYBPbRC6j8lSHROtKuTszOdPrWXYK/EXELJijgqxrzD5ooP7xgvfp8G0uYyEIYqw==",
++    "filename": "lobehub-plugin-session-date-filter-0.1.0.tgz",
++    "files": [
++      {
++        "path": "README.md",
++        "size": 4679,
++        "mode": 420
++      },
++      {
++        "path": "index.mjs",
++        "size": 1798,
++        "mode": 420
++      },
++      {
++        "path": "package.json",
++        "size": 1542,
++        "mode": 420
++      },
++      {
++        "path": "page/app.mjs",
++        "size": 4093,
++        "mode": 420
++      },
++      {
++        "path": "page/boot.js",
++        "size": 686,
++        "mode": 420
++      },
++      {
++        "path": "page/index.html",
++        "size": 807,
++        "mode": 420
++      },
++      {
++        "path": "page/service.html",
++        "size": 1936,
++        "mode": 420
++      },
++      {
++        "path": "page/style.css",
++        "size": 3024,
++        "mode": 420
++      },
++      {
++        "path": "src/matcher.mjs",
++        "size": 9280,
++        "mode": 420
++      },
++      {
++        "path": "src/page-bridge.mjs",
++        "size": 3065,
++        "mode": 420
++      },
++      {
++        "path": "src/plugin-server-status.mjs",
++        "size": 1080,
++        "mode": 420
++      },
++      {
++        "path": "src/protocols.mjs",
++        "size": 7070,
++        "mode": 420
++      },
++      {
++        "path": "src/request-measurement.mjs",
++        "size": 13821,
++        "mode": 420
++      },
++      {
++        "path": "src/request.hooks.mjs",
++        "size": 2102,
++        "mode": 420
++      },
++      {
++        "path": "src/service-api.mjs",
++        "size": 7152,
++        "mode": 420
++      },
++      {
++        "path": "src/stats-store.mjs",
++        "size": 16809,
++        "mode": 420
++      },
++      {
++        "path": "src/stats-ui.mjs",
++        "size": 4331,
++        "mode": 420
++      }
++    ],
++    "entryCount": 17,
++    "bundled": []
++  }
++]
+diff --git a/.superpowers/sdd/session-date-filter/task-3-pack-smoke.log b/.superpowers/sdd/session-date-filter/task-3-pack-smoke.log
+new file mode 100644
+index 0000000..6dd5daa
+--- /dev/null
++++ b/.superpowers/sdd/session-date-filter/task-3-pack-smoke.log
+@@ -0,0 +1,7 @@
++/ 200 text/html; charset=utf-8
++/app.mjs 200 text/javascript; charset=utf-8
++/boot.js 200 text/javascript; charset=utf-8
++/page-bridge.mjs 200 text/javascript; charset=utf-8
++/stats-ui.mjs 200 text/javascript; charset=utf-8
++/style.css 200 text/css; charset=utf-8
++packed service smoke: exit=0
+diff --git a/.superpowers/sdd/session-date-filter/task-3-pack.log b/.superpowers/sdd/session-date-filter/task-3-pack.log
+new file mode 100644
+index 0000000..f79dcfa
+--- /dev/null
++++ b/.superpowers/sdd/session-date-filter/task-3-pack.log
+@@ -0,0 +1,31 @@
++npm notice
++npm notice 📦  lobehub-plugin-session-date-filter@0.1.0
++npm notice Tarball Contents
++npm notice 4.7kB README.md
++npm notice 1.8kB index.mjs
++npm notice 1.5kB package.json
++npm notice 4.1kB page/app.mjs
++npm notice 686B page/boot.js
++npm notice 807B page/index.html
++npm notice 1.9kB page/service.html
++npm notice 3.0kB page/style.css
++npm notice 9.3kB src/matcher.mjs
++npm notice 3.1kB src/page-bridge.mjs
++npm notice 1.1kB src/plugin-server-status.mjs
++npm notice 7.1kB src/protocols.mjs
++npm notice 13.8kB src/request-measurement.mjs
++npm notice 2.1kB src/request.hooks.mjs
++npm notice 7.2kB src/service-api.mjs
++npm notice 16.8kB src/stats-store.mjs
++npm notice 4.3kB src/stats-ui.mjs
++npm notice Tarball Details
++npm notice name: lobehub-plugin-session-date-filter
++npm notice version: 0.1.0
++npm notice filename: lobehub-plugin-session-date-filter-0.1.0.tgz
++npm notice package size: 23.7 kB
++npm notice unpacked size: 83.3 kB
++npm notice shasum: 09e91093a7b0908f9798b733a0549df1b1eb6afc
++npm notice integrity: sha512-DiZcTVa64hvJk[...]fp8G0uYyEIYqw==
++npm notice total files: 17
++npm notice
++lobehub-plugin-session-date-filter-0.1.0.tgz
+diff --git a/.superpowers/sdd/session-date-filter/task-3-red.log b/.superpowers/sdd/session-date-filter/task-3-red.log
+new file mode 100644
+index 0000000..699911c
+--- /dev/null
++++ b/.superpowers/sdd/session-date-filter/task-3-red.log
+@@ -0,0 +1,37 @@
++TAP version 13
++# node:internal/modules/esm/resolve:275
++#     throw new ERR_MODULE_NOT_FOUND(
++#           ^
++# Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/home/m0eak/lobehub-work-dir/magpie-plugin-session-date/src/stats-ui.mjs' imported from /home/m0eak/lobehub-work-dir/magpie-plugin-session-date/test/task3-ui.test.mjs
++#     at finalizeResolution (node:internal/modules/esm/resolve:275:11)
++#     at moduleResolve (node:internal/modules/esm/resolve:861:10)
++#     at defaultResolve (node:internal/modules/esm/resolve:985:11)
++#     at \#cachedDefaultResolve (node:internal/modules/esm/loader:747:20)
++#     at ModuleLoader.resolve (node:internal/modules/esm/loader:724:38)
++#     at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:320:38)
++#     at ModuleJob._link (node:internal/modules/esm/module_job:182:49) {
++#   code: 'ERR_MODULE_NOT_FOUND',
++#   url: 'file:///home/m0eak/lobehub-work-dir/magpie-plugin-session-date/src/stats-ui.mjs'
++# }
++# Node.js v22.23.0
++# Subtest: test/task3-ui.test.mjs
++not ok 1 - test/task3-ui.test.mjs
++  ---
++  duration_ms: 52.87656
++  type: 'test'
++  location: '/home/m0eak/lobehub-work-dir/magpie-plugin-session-date/test/task3-ui.test.mjs:1:1'
++  failureType: 'testCodeFailure'
++  exitCode: 1
++  signal: ~
++  error: 'test failed'
++  code: 'ERR_TEST_FAILURE'
++  ...
++1..1
++# tests 1
++# suites 0
++# pass 0
++# fail 1
++# cancelled 0
++# skipped 0
++# todo 0
++# duration_ms 70.193392
+diff --git a/.superpowers/sdd/session-date-filter/task-3-report.md b/.superpowers/sdd/session-date-filter/task-3-report.md
+new file mode 100644
+index 0000000..a618370
+--- /dev/null
++++ b/.superpowers/sdd/session-date-filter/task-3-report.md
+@@ -0,0 +1,46 @@
++# Task 3 implementation report
++
++Status: **local implementation complete; pending independent final acceptance.** No deployment or publication.
++
++## Base/HEAD and scope
++
++Expected BASE: `f55c1bcc84297da4147fbf712ac0a1a365296822`; branch: `feature/session-date-filter`. Final HEAD is recorded after the single local implementation commit. No host reference repo modifications; no production/NAS/SSH/key/model access, installation, host build, browser run, deployment or publication. Existing logs, diagnosis, fixtures, debug DB and prior review changes were preserved; unrelated files were never staged. Two superseded local tarball outputs were moved to `dist/history/` and retained after final output was made in a fresh subdirectory.
++
++## Page and host integration contract
++
++- Complete manifest: `magpie.hooks` remains the Task2 request hook; `magpie.page` title `Session Date Filter`, Chinese title `会话日期清理`, `file: page/index.html`, service `{port:3479, option:"sessionDateFilterPort"}`. Service reads the host server function's second `options` argument; default is 3479. No extra `magpie.options` editor entry is declared.
++- Initial `page/index.html` loads the official `/_magpie/bridge.js`; `boot.js` waits for `window.magpie.ready`, obtains the host `window.magpie.service`, then navigates to that service URL with the proxy `uiOrigin` plus initial theme/language. It never directly fetches from the initial sandbox (`connect-src 'none'`) and contains no hard-coded production/localhost address.
++- Service root serves the separate app document with an inline bootstrap token only under per-response CSP nonce. The service document re-connects to host `hello`/theme/visibility using a compact in-package host-message client (`src/page-bridge.mjs`), validates message source, applies only known theme tokens and follows visibility events. The app uses only `/api/stats` for authenticated GET. The host service proxy path is generated by the host as `/_magpie/plugin/<page-token>/_magpie/service/`; there is no fixed URL. The service binds only `127.0.0.1`.
++- Fixed service asset routes: `/`, `/app.mjs`, `/boot.js`, `/page-bridge.mjs`, `/stats-ui.mjs`, `/style.css`; those read fixed module-relative assets from an allowlist. The stats API has only GET/OPTIONS and fixed `/api/stats`, `/health`; URL query is rejected; Host and Origin are checked; OPTIONS rejects unsupported methods/headers before allowing GET preflight. API stats checks the per-server 256-bit Bearer token. Cookies are not used. No write/reset route.
++- Service CSP uses `default-src 'none'`; scripts from same service origin and a nonce; style from the service origin; `connect-src 'self'` plus only the validated exact HTTP(S) proxy origin passed through `uiOrigin`. Host page service proxy retains `Origin: null`, removes Cookie, adds sandbox CSP and rewrites the service's `'self'` source to the tokenized proxy origin. No CORS/header/token bypass is intended.
++- UI is compact and host-style; count/schema validation, null timestamps, stale-value behavior, timeout/single-flight, visibility pause, keyboard focus, aria-live, textContent-only data insertion, light/dark and 360px CSS. No decorative animation, reset, content display, model calls or external assets.
++
++## Host source evidence (read-only reference HEAD `50265256ba56ac164a680da0689e1c6d90dac471`)
++
++- `docs/subsystems/plugin-runtime.md:274`: sidebar page scope; initial sandbox `connect-src 'none'`; page.service bridge path/token; cookie removed/origin null; web-only proxy; host service re-adds `'self'` sources as tokenized proxy origins.
++- `internal/plugin/page.go:32-63`: `PageSpec` / `ServiceSpec`; port and option contract. `page.go:170-198` parses `page.file`, and creates service only if package has a host part; `page.go:235-268` validates service and option port.
++- `internal/gui/pluginpage.go:223-249`: initial page CSP, including `connect-src 'none'`; `:323-365` distinguishes service path from page folder and serves bridge; `:400-424` only lists `service` through host for web.
++- `internal/gui/pagebridge.js:1-22,27-52,82-94`: host's `ready`, theme tokens, visibility events, service URL, parent/source validation.
++- `internal/gui/pluginpages.js:123-149`: `hello` / `theme` host message contract and response fields.
++- `internal/gui/pageservice.go:112-180`: tokenized proxy, Origin-null boundary, Cookie stripped, service CSP extended, sandbox response headers.
++- Official sample `internal/gui/testdata/page-plugin/{package.json,page/index.html,app.js,style.css}`.
++- `page-fingerprint` reference: `page/boot.js` waits for bridge service + adds `uiOrigin` then navigates; `src/server.ts` checks Host/Origin, validates `uiOrigin`, adds it to the UI CSP connect-src and protects `/api/*` with its runtime Bearer token. We follow the integration path, not copy large UI code.
++
++## Tests and actual results
++
++- New-task red: `.superpowers/sdd/session-date-filter/task-3-red.log`; Node initially failed to import missing `src/stats-ui.mjs`, exit 1. It proves test-first scaffolding only, not every later behavior individually observed failing.
++- Final full `npm test`: exit 0, output `.superpowers/sdd/session-date-filter/task-3-npm-test.log`: Node **70 passed, 0 failed, 1 skipped** (Bun-only live service test is skipped under Node); Bun Task2 **40 passed, 0 failed**, including lock and eight multi-process SQLite writer rounds; Bun Task3 bridge + UI/live loopback service tests **7 passed, 0 failed**; Task2 Bun integration fixture completed, exit 0. Counts are suite-local; don't sum repeated tests across runtimes as unique behaviors.
++- Focused Task3 service+bridge: `bun test test/task3-ui.test.mjs test/task3-bridge.test.mjs`, **7/7**, exit 0; logs `.superpowers/sdd/session-date-filter/task-3-green-focused.log` and `task-3-bridge-green.log`. Coverage includes initial unavailable vs stale last success, schema unsafe/malformed/count relation/degraded, timeout and shared in-flight fetch, hidden pause, bridge source validation/hello/timeout/theme/visibility, service assets/auth/preflight/read-only verbs/health, root CSP `uiOrigin` and token bootstrap, API snapshot. These are local/simulated plus Bun loopback only, not browser or real host.
++- `node --check` on `index.mjs`, `src/service-api.mjs`, `src/stats-ui.mjs`, `src/page-bridge.mjs`, `page/boot.js`, `page/app.mjs`: each exit 0. `git diff --check BASE..HEAD`: exit 0.
++- `npm pack --dry-run --json`: exit 0. Final package allowlist is 17 runtime files plus package metadata; no tests/evidence/DB/logs. Actual tarball is `dist/task3-final-copy/lobehub-plugin-session-date-filter-0.1.0.tgz`, SHA-256 `583bd1c953b5e9106ea80914fe0051b44166ed6becd98eb325816fcfcef8534f`.
++- Extracted only the final tarball into project-local smoke directory (no `/tmp`, no host install), started its packaged `createService` under Bun with a synthetic store/token, and requested `/`, `/app.mjs`, `/boot.js`, `/page-bridge.mjs`, `/stats-ui.mjs`, `/style.css` (all 200 with expected MIME); root returned CSP including supplied `uiOrigin`. Exit 0, log `.superpowers/sdd/session-date-filter/task-3-pack-smoke.log`. This is a packaged Bun service smoke, not a host loader/browser check.
++
++## Installation reference
++
++Read-only host docs `docs/integrating.md:152-153` and `internal/cli/plugins_cli.go:25,47-70` establish `magpie plugin add <name | npm | git | path>` and `magpie plugin rm <name>`; `internal/plugin/store.go:735-` states installation uses Bun package add. `package.json private:true` was retained and `npm pack` is supported; npm publish is forbidden. README gives local tarball and `plugin rm session-date-filter`, but actual local `.tgz` path handling has not been run in a host and awaits independent acceptance.
++
++## Outstanding independent acceptance / known limitations
++
++A different independent agent should verify real host loader, manifest parsing, server options/port matching, web service proxy URL, root HTML CSP after proxy rewriting, actual tokenized API OPTIONS+Authorization path, local tarball add/remove in an isolated host config, and browser UI light/dark, 360px, hidden/visible timing and stale behavior. No host build or browser was run here, per instruction. No production install. In the host's desktop window the page bridge deliberately supplies no service URL; this page requires `page.service` and therefore reports unavailable there unless the host path supplies a service (the inspected host source documents the bridge service as web-only). That desktop-vs-web behavior must be explicitly considered by final acceptance; do not claim desktop service works.
++
++No independent final reviewer has run yet. `progress.md` says Task 3 implementation awaits final independent acceptance, not clean.
+diff --git a/README.md b/README.md
+index 4c20135..5af8f85 100644
+--- a/README.md
++++ b/README.md
+@@ -1,67 +1,48 @@
+ # Session Date Filter / 会话日期清理
+ 
+-> **开发中：阶段 2 / 3。** Task 1 纯函数过滤已通过审查；Task 2 request hook、SQLite 聚合存储和 loopback API 已完成本地验收，等待主代理独立审查。尚无真实页面、最终安装包或部署结论；Task2独立审查发现已做本地修复，等待复审；不要安装到生产环境。
++> **Task 3 本地实现完成，待独立最终验收。** 页面、manifest、只读 page.service 与本地安装包已在工程中实现；尚未通过真实宿主 loader/page 代理与浏览器端验收，未部署/发布，也不应视作已上线。
+ 
+-此独立插件在 magpie 的公开异步请求 hook 中，对客户端请求中的 LobeHub Memory / Credentials 工具提示词执行窄范围变换：只移除经结构 wrapper 确认的 `<session_context>` 中完整英文 `Session date: Weekday, Month D, YYYY` 行。它不会扫描任意 system prompt、user/assistant/tool 内容、未知字段、图片或非文本块；不做协议转换。插件不保存请求正文、Key、模型、会话、provider、agent 或逐请求明细。浅层检查用于拒绝已知畸形/unsupported body，并独立决定未命中请求能否计量；合法未知扩展或部分多模态历史不会阻断对已识别 system/developer 文本的安全过滤，且未知无关payload不会被解析或改写。若确实删去目标日期行，该成功变换计入一次processed/matched与实际removed行数，即使无关payload令请求不可完整计量；无命中且不可计量的合法扩展请求不计数。合法常见user/assistant/tool历史、多模态块和Responses `previous_response_id`续聊可计量；已知结构畸形（例如缺必要role/content、错误字段类型或非法已知part）仍原样透传、不变换、不计数。该浅检查不是完整上游schema validator；filter只扫描规定的system/developer文字。
++此独立插件在 magpie 的公开异步请求 hook 中，对客户端请求中的 LobeHub Memory / Credentials 工具提示词执行窄范围变换：仅移除经结构 wrapper 确认的 `<session_context>` 中完整英文 `Session date: Weekday, Month D, YYYY` 行。它不扫描任意 system prompt、user/assistant/tool 内容、未知字段、图片或非文本块，不做协议转换；不保存请求正文、Key、模型、会话、provider、agent 或逐请求明细。合法未知扩展或部分多模态历史不会阻断对已识别 system/developer 文本的安全过滤；未知且无命中的无关payload不计量。合法Gemini已知媒体/code part可能增加unmatched统计口径，见独立复审记录。完全伪造同一 XML wrapper 的普通正文无法可靠地从真实工具模板语义区分，不承诺绝无误匹配。
+ 
+-此操作只计提示词变换次数，不代表模型端缓存命中率，也不能保证节省 token 或改善缓存。其他动态提示词、路由和缓存 TTL 仍会影响结果。删除日期可能减弱 Memory 在消息缺少时间戳时的相对时间 fallback。
++## 插件页面
+ 
+-由于正文中完全伪造与目标工具完全相同的 XML 包装无法可靠地从真实工具模板语义区分，匹配只做严格结构约束，并不承诺绝无误匹配。日期匹配也不是对整个 JSON 序列化字节完全不变；除删除的目标行与其行分隔符外，结构及非文本元数据应保持。
++sidebar页面“会话日期清理 / Session Date Filter”只显示聚合数与时间：累计移除行数、已处理/命中/未命中请求、统计开始/最近命中/更新时间，以及服务/存储状态。页面没有reset、独立启停、日统计、图表或请求内容查看。
+ 
+-## 模块接口
++统计表示**提示词变换次数，不代表模型缓存命中率**。删除日期可能弱化 Memory 在消息缺少时间戳时的相对时间 fallback。其他动态提示词、路由与缓存 TTL 仍影响效果，插件不保证节省 token 或命中缓存。
+ 
+-- `src/matcher.mjs`：`stripSessionDates(text) -> { text, removedLines }`
+-- `src/protocols.mjs`：`filterRequest(body, protocol) -> { body, removedLines, supported }`
+-- Task 2（本地实现、测试完成，待独立审查）：`src/request.hooks.mjs` 导出公开异步 `onRequest(body, ctx)`；`src/stats-store.mjs` 实现 Bun 内置 SQLite 聚合存储；`src/service-api.mjs` 提供 loopback 只读 API；`index.mjs` 是宿主 server 入口。
++初始 page iframe 只经宿主 bridge 握手后导航到 `window.magpie.service`，不从 `connect-src 'none'` 沙箱直接 fetch。service 文档重新连接宿主的 `hello` / `theme` / `visibility` 消息桥，以跟随主题和暂停隐藏页面的轮询。服务 token 只通过当前本地 service HTML 的每响应 CSP nonce bootstrap传递，之后作为 `/api/stats` Bearer token；没有读取宿主窗口 DOM或Cookie。`uiOrigin`严格验证并仅加入service HTML的 `connect-src`。统计服务仅绑定`127.0.0.1`，宿主 `page.service` 负责以页面token代理到后端；不写死生产URL/localhost，不移除token认证，不增加额外公开端口。`sessionDateFilterPort` 是manifest service option，缺省3479；需更改时应让host选项与服务监听端口保持一致。
+ 
+-支持协议：chat、responses、anthropic、gemini。Chat 文本块使用 `type: text`，Responses 输入文本块使用 `type: input_text`；Responses easy input message 接受 `type` 缺省或显式 `message`，但显式未知 `type` 不会冒充message。只检查 system/developer 或协议顶层系统指令位置；Gemini 只检查对象形状 `systemInstruction.parts[].text`，并对错误元数据类型或混合未知 payload fail-open。合法Chat assistant tool-call可省略content或设为null；合法Responses消息可省略type。未知协议及已知畸形内容fail-open；不扫描其他对象的任意 `text` 字段。
++## 聚合 API 和统计语义
+ 
+-## 聚合 API 契约（供 Task 3）
+-
+-`GET /api/stats` 返回稳定 JSON：
+-
+-```json
+-{
+-  "schemaVersion": 1,
+-  "status": "ok",
+-  "stats": {
+-    "processedRequests": 1,
+-    "matchedRequests": 1,
+-    "removedLines": 1,
+-    "unmatchedRequests": 0,
+-    "startedAt": "2026-11-04T00:00:00.000Z",
+-    "updatedAt": "2026-11-04T00:00:00.000Z",
+-    "lastMatchedAt": "2026-11-04T00:00:00.000Z"
+-  },
+-  "persistence": "SQLite WAL; this host includes local pending counters; other hosts appear after commit. Normal flush interval is about 30 seconds; persistent lock failures may delay visibility, and unflushed local counters may be lost on process crash."
+-}
+-```
+-
+-若loopback统计listener不能启动，公开hook依然加载并过滤，但统计API无法访问；server状态会报`unavailable/listener-unavailable`并向宿主发一次固定warn。未来Task3必须明显显示“统计服务不可用”，不可误显示为正常空统计。`unmatchedRequests` 是 `processedRequests - matchedRequests`。尚未处理任何有效请求时三个时间字段为 `null`。未曾发生命中时 `lastMatchedAt` 为 `null`。`GET /health` 是可选只读健康查询。服务只监听 `127.0.0.1`，只接受 GET 和必要的 OPTIONS 预检，固定路径，不允许 URL 选择文件路径。sandbox `Origin: null` 与同源 loopback only；页面访问必须经宿主代理 token，不可公开映射服务端口。Task 2 不声明空 page；Task 3 提供真实 HTML 后才应声明 `page.service` 并用 `magpie.service`。
+-
+-SQLite WAL with write-ahead initialization and serialized atomic aggregate updates. Each supported request updates in-memory counters only; a periodic (~30 second) background flush uses a 2 ms SQLite busy wait followed by capped exponential retry scheduling (up to 2 seconds per retry window). A request transform never waits for a database lock. A failed transaction retains pending deltas and reports `degraded`; later cycle/retry can recover. Same-process snapshots include local pending counts; other plugin hosts appear only after commit. The 30-second interval is a normal-operation target, not a guarantee during persistent storage lock/failure. Crash or host shutdown while pending deltas remain may lose this process's uncommitted window; graceful close attempts one bounded flush but cannot guarantee persistence during a continuing lock.
++服务只读：`GET /api/stats` 与 `GET /health`。统计schemaVersion=1，字段：`processedRequests`、`matchedRequests`、`removedLines`、`unmatchedRequests=processedRequests-matchedRequests`、UTC `startedAt` / `updatedAt` / `lastMatchedAt`、`status` 与 `persistence`。页面拒绝错误schema、非安全整数、负数、计数关系错误或非法UTC时间，不把其他JSON误画成零。首次API失败显示不可用而非零；之后失败保留最近成功值并标旧数据。监听启动失败不会影响请求过滤，但统计页面不可用。
+ 
++每个进入支持hook的可计量请求计一次；客户端新HTTP重试是另一次请求。命中计数表示至少实际删除了日期行；`removedLines`是删除的行数，与请求数不是同一口径。计数在当前host pending立即可见，其他host在事务提交后出现；正常flush约30秒，存储锁/故障会延迟。进程异常退出或host shutdown时，未flush增量可能丢失；不承诺零丢失、跨进程exactly-once或实际缓存收益。
+ 
++## 安装与卸载（本地包，不发布）
+ 
+-## Iteration status
++工程内tarball名：`lobehub-plugin-session-date-filter-0.1.0.tgz`。按本地绝对路径安装到测试宿主：
+ 
+-Task 2 request hook、SQLite aggregate store 与 loopback API 已通过本地完整自动化验收；fix1根据独立审查新增浅层可计量结构检查、预检path/query allowlist与listener部分降级，当前等待独立复审。插件主机依 `directory` 参数在其配置根写入固定 `session-date-filter/stats.sqlite`，不会写入包目录/`plugins.json`。页面尚未实现，manifest 暂不声明空 page 或 `page.service`。不要安装到生产环境。
++```sh
++magpie plugin add /absolute/path/to/lobehub-plugin-session-date-filter-0.1.0.tgz
++```
+ 
+-纯逻辑及 Task 1 回归：
++移除：
+ 
+ ```sh
+-npm test
++magpie plugin rm session-date-filter
+ ```
+ 
+-Task 2 Bun/SQLite tests:
++宿主源码中 `plugin add <name | npm | git | path>`、`plugin rm <name>` 已核实，但本轮没有实际运行安装；本机tarball路径spec由独立验收确认。`package.json` 的 `private: true` 不影响本地 `npm pack`；禁止 `npm publish`。
++
++## 开发与验证
+ 
+ ```sh
+-bun test test/task2.test.mjs
+-bun run test:task2:integration
++npm test
++node --check src/service-api.mjs
++node --check src/stats-ui.mjs
++node --check src/page-bridge.mjs
++node --check page/boot.js
++node --check page/app.mjs
+ ```
+ 
+-实现计划、批准边界、宿主契约证据与当前阶段状态见：
+-- `docs/superpowers/specs/2026-11-04-session-date-filter-design.md`
+-- `docs/superpowers/plans/2026-11-04-session-date-filter-plan.md`
+-- `.superpowers/sdd/session-date-filter/task-2-brief.md`
+-- `.superpowers/sdd/session-date-filter/progress.md`
++完整报告、测试日志、tarball SHA256、变更/patch及未验证项见 `.superpowers/sdd/session-date-filter/task-3-report.md`。计划与规格见 `docs/superpowers/plans/2026-11-04-session-date-filter-plan.md` 与 `docs/superpowers/specs/2026-11-04-session-date-filter-design.md`。
+diff --git a/dist/task3-final-copy/lobehub-plugin-session-date-filter-0.1.0.tgz b/dist/task3-final-copy/lobehub-plugin-session-date-filter-0.1.0.tgz
+new file mode 100644
+index 0000000000000000000000000000000000000000..8402dc2d8c361a7a4c51a66a0eab4c25e677a3b5
+GIT binary patch
+literal 23674
+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
+
+literal 0
+HcmV?d00001
+
+diff --git a/index.mjs b/index.mjs
+index a7a3a73..2586d1f 100644
+--- a/index.mjs
++++ b/index.mjs
+@@ -1,9 +1,9 @@
++import { randomBytes } from 'node:crypto';
+ import { configureStatsStore } from './src/stats-store.mjs';
+ import { createService, ServiceListenError } from './src/service-api.mjs';
+ import { getPluginServerStatus, initializePluginServer } from './src/plugin-server-status.mjs';
+ 
+ let active;
+-
+ function serverPort(options) {
+   const value = options?.sessionDateFilterPort;
+   return Number.isInteger(value) && value >= 1024 && value <= 65535 ? value : 3479;
+@@ -17,26 +17,18 @@ export default {
+     const store = configureStatsStore({ directory: root });
+     let service;
+     try {
+-      service = createService({ store, port: serverPort(options) });
++      service = createService({ store, port: serverPort(options), token: randomBytes(32).toString('hex') });
+     } catch (error) {
+       if (!(error instanceof ServiceListenError)) throw error;
+       initializePluginServer({ state: 'unavailable', listenerAvailable: false, storageStatus: store.snapshot().status, reason: 'listener-unavailable' });
+       try {
+         const log = input?.client?.app?.log;
+-        if (typeof log === 'function') {
+-          await log({ body: { level: 'warn', service: 'session-date-filter', message: 'Statistics listener unavailable; request filtering remains active.' } });
+-        }
+-      } catch {
+-        // Logging failures cannot disable the gateway request hook.
+-      }
++        if (typeof log === 'function') await log({ body: { level: 'warn', service: 'session-date-filter', message: 'Statistics listener unavailable; request filtering remains active.' } });
++      } catch { /* Logging failures cannot disable the gateway request hook. */ }
+     }
+     if (service) {
+-      try {
+-        initializePluginServer({ state: 'available', listenerAvailable: true, storageStatus: store.snapshot().status, reason: null });
+-      } catch (error) {
+-        try { await service.stop(); } catch { /* Best-effort cleanup for this owned listener only. */ }
+-        throw error;
+-      }
++      try { initializePluginServer({ state: 'available', listenerAvailable: true, storageStatus: store.snapshot().status, reason: null }); }
++      catch (error) { try { await service.stop(); } catch { /* Best-effort cleanup for this owned listener only. */ } throw error; }
+     }
+     active = { service, store };
+     return {};
+diff --git a/package.json b/package.json
+index 5effed6..21dfe8e 100644
+--- a/package.json
++++ b/package.json
+@@ -3,15 +3,11 @@
+   "version": "0.1.0",
+   "private": true,
+   "type": "module",
+-  "description": "WIP standalone plugin: narrowly remove LobeHub Memory/Credentials session-date lines.",
+-  "files": [
+-    "src/",
+-    "README.md",
+-    "index.mjs"
+-  ],
++  "description": "A narrowly scoped request hook and read-only session date statistics page.",
++  "files": ["src/", "page/", "README.md", "index.mjs"],
+   "scripts": {
+-    "test": "node --test test/matcher.test.mjs test/protocols.test.mjs test/manual-review-fix.test.mjs && bun test test/task2.test.mjs && bun run test/task2-integration.bun.mjs",
+-    "test:node": "node --test test/matcher.test.mjs test/protocols.test.mjs test/manual-review-fix.test.mjs",
++    "test": "node --test test/matcher.test.mjs test/protocols.test.mjs test/manual-review-fix.test.mjs test/task3-ui.test.mjs test/task3-bridge.test.mjs && bun test test/task2.test.mjs test/task3-ui.test.mjs test/task3-bridge.test.mjs && bun run test/task2-integration.bun.mjs",
++    "test:node": "node --test test/matcher.test.mjs test/protocols.test.mjs test/manual-review-fix.test.mjs test/task3-ui.test.mjs test/task3-bridge.test.mjs",
+     "test:task2": "bun test test/task2.test.mjs",
+     "test:task2:integration": "bun run test/task2-integration.bun.mjs",
+     "start:task2-test": "bun test test/task2.test.mjs"
+@@ -23,9 +19,17 @@
+     "./protocols": "./src/protocols.mjs",
+     "./request.hooks": "./src/request.hooks.mjs",
+     "./stats-store": "./src/stats-store.mjs",
+-    "./service-api": "./src/service-api.mjs"
++    "./service-api": "./src/service-api.mjs",
++    "./stats-ui": "./src/stats-ui.mjs",
++    "./page-bridge": "./src/page-bridge.mjs"
+   },
+   "magpie": {
+-    "hooks": "./src/request.hooks.mjs"
++    "hooks": "./src/request.hooks.mjs",
++    "page": {
++      "title": "Session Date Filter",
++      "titles": { "zh": "会话日期清理" },
++      "file": "page/index.html",
++      "service": { "port": 3479, "option": "sessionDateFilterPort" }
++    }
+   }
+ }
+diff --git a/page/app.mjs b/page/app.mjs
+new file mode 100644
+index 0000000..8e51f5c
+--- /dev/null
++++ b/page/app.mjs
+@@ -0,0 +1,54 @@
++import { createPageBridge } from './page-bridge.mjs';
++import { createStatsPoller, setServiceToken } from './stats-ui.mjs';
++
++const pageRoot = document.documentElement;
++let poller;
++const bridge = createPageBridge({ onTheme: (theme) => {
++  pageRoot.dataset.theme = theme.dark ? 'dark' : 'light';
++  pageRoot.lang = String(theme.lang || '').toLowerCase().startsWith('zh') ? 'zh-CN' : 'en';
++}, onVisibility: (visible) => {
++  if (poller) poller.setVisible(visible && document.visibilityState === 'visible');
++  if (visible && document.visibilityState === 'visible' && poller) void poller.refresh().then(show);
++} });
++const params = new URL(location.href).searchParams;
++setServiceToken(params.get('token') || '');
++const copy = (params.get('lang') || 'en').toLowerCase().startsWith('zh');
++pageRoot.dataset.theme = params.get('theme') === 'dark' ? 'dark' : 'light';
++pageRoot.lang = copy ? 'zh-CN' : 'en';
++const text = (zh, en) => copy ? zh : en;
++const fields = Object.fromEntries(['status', 'total', 'processed', 'matched', 'unmatched', 'started', 'lastMatched', 'updated', 'stale', 'refresh'].map((key) => [key, document.getElementById(key)]));
++function formatTime(value) { return value ? new Intl.DateTimeFormat(copy ? 'zh-CN' : 'en', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC', timeZoneName: 'short' }).format(new Date(value)) : text('暂无', 'Not yet'); }
++function show(result) {
++  const snapshot = result.snapshot;
++  fields.status.textContent = result.kind === 'ok' ? text('统计正常', 'Statistics available') : result.kind === 'degraded' ? text('存储降级', 'Storage degraded') : result.kind === 'stale' ? text('服务不可用 · 显示旧数据', 'Service unavailable · showing stale data') : result.kind === 'unavailable' ? text('统计服务不可用', 'Statistics service unavailable') : result.kind === 'paused' ? text('页面不可见 · 已暂停刷新', 'Page hidden · refresh paused') : text('正在刷新…', 'Refreshing…');
++  fields.status.dataset.state = result.kind;
++  fields.stale.textContent = result.kind === 'stale' ? text('数据为上次成功读取；统计服务当前不可用。', 'Values are from the last successful read; the service is unavailable.') : '';
++  if (!snapshot) return;
++  const stats = snapshot.stats;
++  fields.total.textContent = String(stats.removedLines);
++  fields.processed.textContent = String(stats.processedRequests);
++  fields.matched.textContent = String(stats.matchedRequests);
++  fields.unmatched.textContent = String(stats.unmatchedRequests);
++  fields.started.textContent = formatTime(stats.startedAt);
++  fields.lastMatched.textContent = formatTime(stats.lastMatchedAt);
++  fields.updated.textContent = formatTime(stats.updatedAt);
++  if (snapshot.status === 'degraded') {
++    fields.status.textContent = text('存储降级 · 计数可能延迟', 'Storage degraded · counts may be delayed');
++    fields.stale.textContent = text('SQLite 暂不可用或尚未提交；当前主机内待提交计数可能可见，其他主机需提交后显示。', 'SQLite is unavailable or not committed; local pending counters may appear, while other hosts appear after commit.');
++  }
++}
++poller = createStatsPoller({ url: './api/stats', getVisible: () => document.visibilityState === 'visible' && bridge.visible });
++fields.refresh.addEventListener('click', () => void poller.refresh().then(show));
++document.addEventListener('visibilitychange', () => {
++  poller.setVisible(document.visibilityState === 'visible' && bridge.visible);
++  if (document.visibilityState === 'visible' && bridge.visible) void poller.refresh().then(show);
++});
++void bridge.ready.then(() => {
++  poller.setVisible(bridge.visible && document.visibilityState === 'visible');
++  if (bridge.visible && document.visibilityState === 'visible') void poller.refresh().then(show);
++  poller.start(5000, show);
++}).catch(() => {
++  fields.status.textContent = text('宿主页面连接不可用。', 'Host page connection unavailable.');
++  fields.status.dataset.state = 'unavailable';
++});
++window.addEventListener('pagehide', () => { poller?.stop(); bridge.stop(); }, { once: true });
+diff --git a/page/boot.js b/page/boot.js
+new file mode 100644
+index 0000000..524526a
+--- /dev/null
++++ b/page/boot.js
+@@ -0,0 +1,18 @@
++(async () => {
++  const status = document.getElementById('status');
++  try {
++    await window.magpie?.ready;
++    const service = window.magpie?.service;
++    if (!service) throw new Error('当前宿主未提供 page.service 代理。');
++    const url = new URL(service, location.href);
++    url.searchParams.set('uiOrigin', url.origin);
++    const theme = window.magpie?.theme;
++    if (theme) {
++      url.searchParams.set('theme', theme.dark ? 'dark' : 'light');
++      if (theme.lang) url.searchParams.set('lang', theme.lang);
++    }
++    location.replace(url.href);
++  } catch (error) {
++    status.textContent = `统计服务不可用：${String(error?.message || '连接失败')}`;
++  }
++})();
+diff --git a/page/index.html b/page/index.html
+new file mode 100644
+index 0000000..6fb269b
+--- /dev/null
++++ b/page/index.html
+@@ -0,0 +1,18 @@
++<!doctype html>
++<html lang="zh-CN">
++<head>
++  <meta charset="utf-8">
++  <meta name="viewport" content="width=device-width,initial-scale=1">
++  <title>会话日期清理 / Session Date Filter</title>
++  <style>
++    body { margin: 0; min-height: 100vh; display: grid; place-content: center; font: 14px/1.6 -apple-system, BlinkMacSystemFont, system-ui, sans-serif; background: var(--opencode-bg, Canvas); color: var(--opencode-fg, CanvasText); }
++    main { max-width: 440px; padding: 24px; }
++    p { color: var(--opencode-muted, GrayText); }
++  </style>
++  <script src="_magpie/bridge.js"></script>
++</head>
++<body>
++  <main><strong>会话日期清理 / Session Date Filter</strong><p id="status" role="status" aria-live="polite">正在连接统计服务…</p></main>
++  <script src="boot.js"></script>
++</body>
++</html>
+diff --git a/page/service.html b/page/service.html
+new file mode 100644
+index 0000000..6ed9175
+--- /dev/null
++++ b/page/service.html
+@@ -0,0 +1,24 @@
++<!doctype html>
++<html lang="zh-CN" data-theme="light">
++<head>
++  <meta charset="utf-8">
++  <meta name="viewport" content="width=device-width,initial-scale=1">
++  <meta name="color-scheme" content="light dark">
++  <title>会话日期清理 / Session Date Filter</title>
++  <link rel="stylesheet" href="./style.css">
++  <script type="module" src="./app.mjs"></script>
++</head>
++<body>
++  <main>
++    <header><div><h1>会话日期清理 <span aria-hidden="true">/</span> Session Date Filter</h1><p class="subtitle">只读聚合统计 · Read-only aggregate statistics</p></div><button id="refresh" type="button">手动刷新</button></header>
++    <div class="status-row"><p id="status" role="status" aria-live="polite" data-state="loading">正在加载…</p></div>
++    <p id="stale" role="alert" aria-live="assertive"></p>
++    <section class="hero" aria-label="累计移除行数"><strong id="total">—</strong><span>累计移除行数 / lines removed</span></section>
++    <section class="metrics" aria-label="请求统计"><div class="metric"><span>已处理请求 / Processed</span><strong id="processed">—</strong></div><div class="metric"><span>命中请求 / Matched</span><strong id="matched">—</strong></div><div class="metric"><span>未命中请求 / Unmatched</span><strong id="unmatched">—</strong></div></section>
++    <dl><dt>统计起始 / Started</dt><dd id="started">暂无</dd><dt>最近命中 / Last matched</dt><dd id="lastMatched">暂无</dd><dt>更新时间 / Updated</dt><dd id="updated">暂无</dd></dl>
++    <p class="note">统计为提示词变换次数，不代表模型缓存命中率。</p>
++    <p class="note">删除日期可能影响 Memory 在消息缺少时间戳时的相对时间理解。</p>
++    <p class="note">同一主机待提交计数可见；其他主机通常在约 30 秒提交后可见。持续存储故障可延迟更久，进程崩溃可能丢失尚未提交计数。</p>
++  </main>
++</body>
++</html>
+diff --git a/page/style.css b/page/style.css
+new file mode 100644
+index 0000000..9611938
+--- /dev/null
++++ b/page/style.css
+@@ -0,0 +1,28 @@
++* { box-sizing: border-box; }
++:root { color-scheme: light dark; --panel: var(--opencode-card, Canvas); --line: var(--opencode-line, color-mix(in srgb, CanvasText 16%, transparent)); --muted: var(--opencode-muted, GrayText); --accent: var(--opencode-accent, Highlight); }
++body { margin: 0; padding: 18px 20px 24px; min-width: 0; font: 13px/1.5 var(--opencode-font, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif); background: var(--opencode-bg, Canvas); color: var(--opencode-fg, CanvasText); }
++header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
++h1 { margin: 0; font-size: 18px; line-height: 1.3; font-weight: 620; }
++.subtitle { margin: 4px 0 0; color: var(--muted); }
++button { flex: none; min-height: 30px; border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; background: var(--panel); color: inherit; font: inherit; cursor: pointer; }
++button:hover { border-color: var(--accent); }
++button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
++.status-row { display: flex; align-items: center; gap: 8px; margin: 16px 0 10px; }
++#status { margin: 0; font-weight: 550; }
++#status::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: var(--muted); vertical-align: 1px; }
++#status[data-state="ok"]::before { background: #32835a; }
++#status[data-state="degraded"], #status[data-state="stale"], #status[data-state="unavailable"] { color: #b54738; }
++#status[data-state="degraded"]::before, #status[data-state="stale"]::before, #status[data-state="unavailable"]::before { background: #bd5347; }
++#stale { margin: 0 0 10px; color: #b54738; }
++.hero { display: flex; align-items: baseline; gap: 8px; padding: 13px 15px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
++.hero strong { font-size: clamp(28px, 8vw, 38px); line-height: 1; font-variant-numeric: tabular-nums; }
++.hero span { color: var(--muted); }
++.metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
++.metric { min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
++.metric span { display: block; color: var(--muted); font-size: 12px; }
++.metric strong { display: block; margin-top: 2px; font-size: 18px; font-variant-numeric: tabular-nums; }
++dl { display: grid; grid-template-columns: minmax(92px, 140px) minmax(0, 1fr); gap: 6px 12px; margin: 14px 2px; }
++dt { color: var(--muted); } dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
++.note { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--line); color: var(--muted); }
++.note + .note { margin-top: 5px; padding-top: 0; border: 0; }
++@media (max-width: 380px) { body { padding: 14px 12px 18px; } .metrics { gap: 5px; } .metric { padding: 8px 7px; } .metric strong { font-size: 16px; } dl { grid-template-columns: 98px minmax(0, 1fr); gap: 5px 8px; } h1 { font-size: 16px; } }
+diff --git a/src/page-bridge.mjs b/src/page-bridge.mjs
+new file mode 100644
+index 0000000..b888fcf
+--- /dev/null
++++ b/src/page-bridge.mjs
+@@ -0,0 +1,78 @@
++const THEME_KEYS = new Set(['bg', 'card', 'fg', 'fg-2', 'muted', 'faint', 'line', 'accent', 'accent-soft', 'accent-fg', 'green', 'red', 'amber', 'font', 'code']);
++
++export function createPageBridge({ parentWindow = globalThis.parent, selfWindow = globalThis, timeoutMs = 6000, onTheme = () => {}, onVisibility = () => {} } = {}) {
++  let nextId = 0;
++  let helloId;
++  let settled = false;
++  let active = true;
++  let currentTheme = null;
++  let hostVisible = true;
++  let timer;
++  const applyTheme = (theme) => {
++    if (!theme || typeof theme !== 'object' || typeof theme.dark !== 'boolean') return;
++    currentTheme = theme;
++    const root = selfWindow.document?.documentElement;
++    if (root) {
++      root.dataset.theme = theme.dark ? 'dark' : 'light';
++      root.style.colorScheme = theme.dark ? 'dark' : 'light';
++      if (typeof theme.lang === 'string' && theme.lang) root.lang = theme.lang;
++      if (theme.tokens && typeof theme.tokens === 'object') {
++        for (const [key, value] of Object.entries(theme.tokens)) {
++          if (THEME_KEYS.has(key) && typeof value === 'string') root.style.setProperty(`--opencode-${key}`, value);
++        }
++      }
++    }
++    onTheme(theme);
++  };
++  const receive = (event) => {
++    if (!active || event.source !== parentWindow) return;
++    const message = event.data;
++    if (!message || message.opencode !== 1) return;
++    if (message.event === 'theme') {
++      if (settled) applyTheme(message.data);
++      return;
++    }
++    if (message.event === 'visibility') {
++      if (settled) {
++        hostVisible = message.data?.visible !== false;
++        onVisibility(hostVisible);
++      }
++      return;
++    }
++    if (message.id !== helloId || settled) return;
++    settled = true;
++    clearTimeout(timer);
++    if (message.error) {
++      selfWindow.removeEventListener('message', receive);
++      rejectReady(new Error('Host page bridge unavailable.'));
++      return;
++    }
++    const result = message.result || {};
++    if (typeof result.visible === 'boolean') hostVisible = result.visible;
++    applyTheme(result);
++    resolveReady({ visible: hostVisible, theme: result });
++  };
++  let resolveReady;
++  let rejectReady;
++  const ready = new Promise((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
++  if (parentWindow && parentWindow !== selfWindow && typeof selfWindow.addEventListener === 'function') {
++    helloId = ++nextId;
++    selfWindow.addEventListener('message', receive);
++    timer = setTimeout(() => {
++      if (settled) return;
++      settled = true;
++      selfWindow.removeEventListener('message', receive);
++      rejectReady(new Error('Host page bridge timed out.'));
++    }, timeoutMs);
++    parentWindow.postMessage({ opencode: 1, id: helloId, method: 'hello', params: {} }, '*');
++  } else {
++    settled = true;
++    resolveReady({ visible: true, theme: null });
++  }
++  return {
++    ready,
++    get visible() { return hostVisible; },
++    get theme() { return currentTheme; },
++    stop() { active = false; settled = true; clearTimeout(timer); selfWindow.removeEventListener?.('message', receive); },
++  };
++}
+diff --git a/src/service-api.mjs b/src/service-api.mjs
+index 8cfa62a..87336f3 100644
+--- a/src/service-api.mjs
++++ b/src/service-api.mjs
+@@ -1,28 +1,40 @@
++import { randomBytes } from 'node:crypto';
++import { readFile } from 'node:fs/promises';
++import { fileURLToPath } from 'node:url';
++
++const ASSETS = new Map([
++  ['/app.mjs', ['../page/app.mjs', 'text/javascript; charset=utf-8']],
++  ['/boot.js', ['../page/boot.js', 'text/javascript; charset=utf-8']],
++  ['/page-bridge.mjs', ['../src/page-bridge.mjs', 'text/javascript; charset=utf-8']],
++  ['/stats-ui.mjs', ['../src/stats-ui.mjs', 'text/javascript; charset=utf-8']],
++  ['/style.css', ['../page/style.css', 'text/css; charset=utf-8']],
++]);
++const EMPTY_STATS = Object.freeze({ processedRequests: 0, matchedRequests: 0, removedLines: 0, unmatchedRequests: 0, startedAt: null, updatedAt: null, lastMatchedAt: null });
++const NONCE = /^[a-f0-9]{64}$/i;
+ 
+ export class ServiceListenError extends Error {
+-  constructor() {
+-    super('Statistics listener could not be started.');
+-    this.name = 'ServiceListenError';
+-    this.reasonCode = 'address-in-use';
+-  }
++  constructor() { super('Statistics listener could not be started.'); this.name = 'ServiceListenError'; this.reasonCode = 'address-in-use'; }
++}
++function response(body, status, headers = {}) {
++  return new Response(body, { status, headers: { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', ...headers } });
+ }
+-
+ function jsonResponse(body, status, headers = {}) {
+-  return new Response(JSON.stringify(body), {
+-    status,
+-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', ...headers },
+-  });
++  return response(JSON.stringify(body), status, { 'content-type': 'application/json; charset=utf-8', ...headers });
++}
++function validateUiOrigin(value) {
++  if (!value) return '';
++  try {
++    const url = new URL(value);
++    if (!['http:', 'https:'].includes(url.protocol) || url.origin !== value || url.hostname.includes('*')) return null;
++    return value;
++  } catch { return null; }
+ }
+ 
+-/**
+- * Start a GET-only stats service on the loopback interface.
+- * In the host use this from the plugin's server(input, options) function.
+- */
+-export function createService({ store, port = 3479 } = {}) {
++export function createService({ store, port = 3479, token = '' } = {}) {
+   if (!store || typeof store.snapshot !== 'function') throw new TypeError('A stats store is required.');
+   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new TypeError('Invalid service port.');
++  if (token && !NONCE.test(token)) throw new TypeError('Invalid service token.');
+   if (typeof Bun === 'undefined' || typeof Bun.serve !== 'function') throw new Error('Service requires Bun.');
+-
+   let server;
+   const fetchHandler = async (request) => {
+     const url = new URL(request.url);
+@@ -31,9 +43,10 @@ export function createService({ store, port = 3479 } = {}) {
+     const origin = request.headers.get('origin');
+     if (requestHost !== host) return jsonResponse({ error: 'Forbidden' }, 403);
+     if (origin != null && origin !== 'null' && origin !== `http://${host}`) return jsonResponse({ error: 'Forbidden' }, 403);
+-    if ((url.pathname !== '/api/stats' && url.pathname !== '/health') || url.search) {
+-      return jsonResponse({ error: 'Not found' }, 404);
+-    }
++    const isApi = url.pathname === '/api/stats' || url.pathname === '/health';
++    const isRoot = url.pathname === '/';
++    const isAsset = ASSETS.has(url.pathname);
++    if (!isApi && !isRoot && !isAsset) return jsonResponse({ error: 'Not found' }, 404);
+     const cors = {
+       'access-control-allow-origin': origin ?? `http://${host}`,
+       'access-control-allow-methods': 'GET, OPTIONS',
+@@ -41,40 +54,60 @@ export function createService({ store, port = 3479 } = {}) {
+       vary: 'Origin',
+     };
+     if (request.method === 'OPTIONS') {
++      if (!isApi) return jsonResponse({ error: 'Method not allowed' }, 405, cors);
++      if (url.search) return jsonResponse({ error: 'Not found' }, 404);
+       const requested = request.headers.get('access-control-request-method');
+-      if (requested && requested !== 'GET') return jsonResponse({ error: 'Method not allowed' }, 405, cors);
++      const requestedHeaders = (request.headers.get('access-control-request-headers') || '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean);
++      if ((requested && requested !== 'GET') || requestedHeaders.some((header) => !['authorization', 'content-type'].includes(header))) return jsonResponse({ error: 'Method not allowed' }, 405, cors);
+       return new Response(null, { status: 204, headers: cors });
+     }
+-    if (request.method !== 'GET') return jsonResponse({ error: 'Method not allowed' }, 405, cors);
+-    if (url.pathname === '/health') return jsonResponse({ status: store.snapshot().status }, 200, cors);
+-    try {
+-      return jsonResponse(store.snapshot(), 200, cors);
+-    } catch {
+-      return jsonResponse({ schemaVersion: 1, status: 'degraded', stats: {
+-        processedRequests: 0, matchedRequests: 0, removedLines: 0, unmatchedRequests: 0,
+-        startedAt: null, updatedAt: null, lastMatchedAt: null,
+-      } }, 200, cors);
++    if (isApi && url.search) return jsonResponse({ error: 'Not found' }, 404, cors);
++    if (isRoot) {
++      const allowed = new Set(['uiOrigin', 'theme', 'lang']);
++      if ([...url.searchParams.keys()].some((key) => !allowed.has(key)) || [...allowed].some((key) => url.searchParams.getAll(key).length > 1)) return jsonResponse({ error: 'Not found' }, 404);
++      const uiOrigin = validateUiOrigin(url.searchParams.get('uiOrigin') || '');
++      if (uiOrigin === null) return jsonResponse({ error: 'Invalid UI origin' }, 400);
++      const theme = ['dark', 'light'].includes(url.searchParams.get('theme')) ? url.searchParams.get('theme') : 'light';
++      const lang = (url.searchParams.get('lang') || 'en').slice(0, 24);
++      try {
++        let html = await readFile(fileURLToPath(new URL('../page/service.html', import.meta.url)), 'utf8');
++        const nonce = randomBytes(18).toString('base64');
++        const bootstrap = JSON.stringify({ token, theme, lang }).replaceAll('<', '\\u003c');
++        html = html.replace('<head>', `<head>\n  <script nonce="${nonce}">window.__SESSION_DATE_FILTER__=${bootstrap}</script>`);
++        const connect = ["'self'", ...(uiOrigin ? [uiOrigin] : [])].join(' ');
++        return response(request.method === 'HEAD' ? null : html, 200, {
++          'content-type': 'text/html; charset=utf-8',
++          'referrer-policy': 'no-referrer',
++          'content-security-policy': `default-src 'none'; script-src 'self' 'nonce-${nonce}'; style-src 'self'; connect-src ${connect}; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'`,
++        });
++      } catch { return jsonResponse({ error: 'Asset unavailable' }, 503); }
++    }
++    if (isAsset && url.search) return jsonResponse({ error: 'Not found' }, 404);
++    if (isApi && request.method !== 'GET') return jsonResponse({ error: 'Method not allowed' }, 405, cors);
++    if ((isRoot || isAsset) && request.method !== 'GET' && request.method !== 'HEAD') return jsonResponse({ error: 'Method not allowed' }, 405);
++    if (url.pathname === '/api/stats') {
++      if (token && request.headers.get('authorization') !== `Bearer ${token}`) return jsonResponse({ error: 'Unauthorized' }, 401, cors);
++      try { return jsonResponse(store.snapshot(), 200, cors); }
++      catch { return jsonResponse({ schemaVersion: 1, status: 'degraded', stats: EMPTY_STATS, persistence: 'Statistics storage is unavailable.' }, 200, cors); }
+     }
++    if (url.pathname === '/health') {
++      try { return jsonResponse({ status: store.snapshot().status }, 200, cors); }
++      catch { return jsonResponse({ status: 'degraded' }, 200, cors); }
++    }
++    const [relative, contentType] = ASSETS.get(url.pathname);
++    try {
++      const body = await readFile(fileURLToPath(new URL(relative, import.meta.url)));
++      return response(request.method === 'HEAD' ? null : body, 200, { 'content-type': contentType });
++    } catch { return jsonResponse({ error: 'Asset unavailable' }, 503); }
+   };
+-  try {
+-    server = Bun.serve({ hostname: '127.0.0.1', port, idleTimeout: 0, fetch: fetchHandler });
+-  } catch (error) {
++  try { server = Bun.serve({ hostname: '127.0.0.1', port, idleTimeout: 0, fetch: fetchHandler }); }
++  catch (error) {
+     let code;
+-    try {
+-      code = error instanceof Error ? Object.getOwnPropertyDescriptor(error, 'code')?.value : undefined;
+-    } catch {
+-      throw error;
+-    }
++    try { code = error instanceof Error ? Object.getOwnPropertyDescriptor(error, 'code')?.value : undefined; }
++    catch { throw error; }
+     if (code === 'EADDRINUSE') throw new ServiceListenError();
+     throw error;
+   }
+   let stopped = false;
+-  return {
+-    server,
+-    async stop() {
+-      if (stopped) return;
+-      stopped = true;
+-      try { server.stop(true); } catch {}
+-    },
+-  };
++  return { server, async stop() { if (stopped) return; stopped = true; try { server.stop(true); } catch {} } };
+ }
+diff --git a/src/stats-ui.mjs b/src/stats-ui.mjs
+new file mode 100644
+index 0000000..7a803f1
+--- /dev/null
++++ b/src/stats-ui.mjs
+@@ -0,0 +1,82 @@
++const COUNT_FIELDS = ['processedRequests', 'matchedRequests', 'removedLines', 'unmatchedRequests'];
++const TIME_FIELDS = ['startedAt', 'updatedAt', 'lastMatchedAt'];
++const ISO_UTC = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
++
++function validTimestamp(value) {
++  return value === null || (typeof value === 'string' && ISO_UTC.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value);
++}
++
++export function validateStats(value) {
++  if (!value || typeof value !== 'object' || Array.isArray(value) || value.schemaVersion !== 1 || !['ok', 'degraded'].includes(value.status)) throw new TypeError('Invalid statistics response.');
++  const source = value.stats;
++  if (!source || typeof source !== 'object' || Array.isArray(source)) throw new TypeError('Invalid statistics response.');
++  for (const key of COUNT_FIELDS) if (!Number.isSafeInteger(source[key]) || source[key] < 0) throw new TypeError('Invalid statistics response.');
++  if (source.matchedRequests > source.processedRequests || source.unmatchedRequests !== source.processedRequests - source.matchedRequests || source.removedLines < source.matchedRequests) throw new TypeError('Invalid statistics response.');
++  for (const key of TIME_FIELDS) if (!validTimestamp(source[key])) throw new TypeError('Invalid statistics response.');
++  if (source.processedRequests === 0 && (source.startedAt !== null || source.updatedAt !== null || source.lastMatchedAt !== null)) throw new TypeError('Invalid statistics response.');
++  if (source.processedRequests > 0 && (source.startedAt === null || source.updatedAt === null)) throw new TypeError('Invalid statistics response.');
++  if ((source.matchedRequests === 0) !== (source.lastMatchedAt === null)) throw new TypeError('Invalid statistics response.');
++  if (value.persistence != null && typeof value.persistence !== 'string') throw new TypeError('Invalid statistics response.');
++  return value;
++}
++
++export function createStatsPoller({ fetcher = fetch, url = '/api/stats', getVisible = () => true, timeoutMs = 4000 } = {}) {
++  let inFlight = null;
++  let timer = null;
++  let stopped = false;
++  let started = false;
++  let visible = getVisible();
++  const state = { snapshot: null, kind: 'loading', error: '' };
++  const poller = {
++    state,
++    refresh() {
++      if (!visible || !getVisible()) return Promise.resolve({ kind: 'paused' });
++      if (inFlight) return inFlight;
++      state.kind = state.snapshot ? 'refreshing' : 'loading';
++      const request = (async () => {
++        const controller = new AbortController();
++        const timeout = setTimeout(() => controller.abort(), timeoutMs);
++        try {
++          const response = await fetcher(url, { method: 'GET', headers: { Authorization: `Bearer ${serviceToken}` }, signal: controller.signal, cache: 'no-store' });
++          if (!response?.ok) throw new Error('service unavailable');
++          const next = validateStats(await response.json());
++          state.snapshot = next;
++          state.kind = next.status === 'ok' ? 'ok' : 'degraded';
++          state.error = '';
++          return { kind: state.kind, snapshot: next };
++        } catch {
++          state.kind = state.snapshot ? 'stale' : 'unavailable';
++          state.error = '统计服务暂不可用';
++          return { kind: state.kind, snapshot: state.snapshot };
++        } finally {
++          clearTimeout(timeout);
++          inFlight = null;
++        }
++      })();
++      inFlight = request;
++      return request;
++    },
++    setVisible(next) {
++      visible = next === true;
++      if (visible && started && !timer && !inFlight && !stopped) timer = setTimeout(() => { timer = null; void poller.refresh(); }, 0);
++      if (!visible && timer) { clearTimeout(timer); timer = null; }
++    },
++    start(intervalMs = 5000, onUpdate = () => {}) {
++      if (started) return;
++      started = true;
++      stopped = false;
++      const tick = async () => {
++        if (stopped) return;
++        if (visible && getVisible()) onUpdate(await poller.refresh());
++        if (!visible || stopped) return;
++        timer = setTimeout(tick, intervalMs);
++      };
++      void tick();
++    },
++    stop() { stopped = true; if (timer) clearTimeout(timer); timer = null; },
++  };
++  return poller;
++}
++
++let serviceToken = '';
++export function setServiceToken(token) { serviceToken = typeof token === 'string' ? token : ''; }
+diff --git a/test/task3-bridge.test.mjs b/test/task3-bridge.test.mjs
+new file mode 100644
+index 0000000..c0558ae
+--- /dev/null
++++ b/test/task3-bridge.test.mjs
+@@ -0,0 +1,50 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import { createPageBridge } from '../src/page-bridge.mjs';
++
++function fakeWindow() {
++  const listeners = new Set();
++  return {
++    parent: null,
++    document: { documentElement: { dataset: {}, style: { colorScheme: '', setProperty() {} } } },
++    addEventListener(name, fn) { if (name === 'message') listeners.add(fn); },
++    removeEventListener(name, fn) { if (name === 'message') listeners.delete(fn); },
++    dispatch(event) { for (const fn of [...listeners]) fn(event); },
++    get listenerCount() { return listeners.size; },
++  };
++}
++
++test('bridge accepts only parent handshake and tracks theme plus host visibility', async () => {
++  const self = fakeWindow();
++  const sent = [];
++  const parent = { postMessage: (message, target) => sent.push({ message, target }) };
++  self.parent = parent;
++  const themes = [];
++  const visibility = [];
++  const bridge = createPageBridge({ parentWindow: parent, selfWindow: self, timeoutMs: 100, onTheme: (theme) => themes.push(theme), onVisibility: (visible) => visibility.push(visible) });
++  assert.equal(sent.length, 1);
++  assert.equal(sent[0].message.method, 'hello');
++  const id = sent[0].message.id;
++  self.dispatch({ source: {}, data: { opencode: 1, id, result: { dark: false } } });
++  assert.equal(self.listenerCount, 1);
++  self.dispatch({ source: parent, data: { opencode: 1, id, result: { dark: true, lang: 'zh-CN', tokens: { bg: '#101010', untrusted: 'bad' }, visible: true, service: '/_opencode/service/' } } });
++  const result = await bridge.ready;
++  assert.equal(result.theme.dark, true);
++  assert.equal(self.document.documentElement.dataset.theme, 'dark');
++  assert.equal(self.document.documentElement.lang, 'zh-CN');
++  assert.deepEqual(themes.map((x) => x.dark), [true]);
++  self.dispatch({ source: parent, data: { opencode: 1, event: 'visibility', data: { visible: false } } });
++  assert.equal(bridge.visible, false);
++  assert.deepEqual(visibility, [false]);
++  bridge.stop();
++  assert.equal(self.listenerCount, 0);
++});
++
++test('bridge timeout fails closed and tears down its listener', async () => {
++  const self = fakeWindow();
++  const parent = { postMessage() {} };
++  self.parent = parent;
++  const bridge = createPageBridge({ parentWindow: parent, selfWindow: self, timeoutMs: 5 });
++  await assert.rejects(bridge.ready, /timed out/);
++  assert.equal(self.listenerCount, 0);
++});
+diff --git a/test/task3-ui.test.mjs b/test/task3-ui.test.mjs
+new file mode 100644
+index 0000000..aaaf597
+--- /dev/null
++++ b/test/task3-ui.test.mjs
+@@ -0,0 +1,87 @@
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import { readFile, mkdtemp, rm } from 'node:fs/promises';
++import { tmpdir } from 'node:os';
++import { join, resolve } from 'node:path';
++import { validateStats, createStatsPoller } from '../src/stats-ui.mjs';
++import { createService } from '../src/service-api.mjs';
++
++const good = { schemaVersion: 1, status: 'ok', stats: { processedRequests: 3, matchedRequests: 2, removedLines: 4, unmatchedRequests: 1, startedAt: '2026-11-05T02:03:04.000Z', updatedAt: '2026-11-05T02:04:04.000Z', lastMatchedAt: '2026-11-05T02:04:00.000Z' }, persistence: 'SQLite WAL; this host includes local pending counters.' };
++
++test('stats schema accepts consistent counts and nullable UTC timestamps', () => {
++  assert.deepEqual(validateStats(good), good);
++  assert.equal(validateStats({ ...good, stats: { ...good.stats, startedAt: null, updatedAt: null, lastMatchedAt: null, processedRequests: 0, matchedRequests: 0, removedLines: 0, unmatchedRequests: 0 } }).stats.startedAt, null);
++});
++
++test('stats schema rejects alien, malformed, unsafe and inconsistent data', () => {
++  for (const bad of [null, [], {}, { ...good, schemaVersion: 2 }, { ...good, status: 'unknown' }, { ...good, stats: { ...good.stats, processedRequests: -1 } }, { ...good, stats: { ...good.stats, processedRequests: Number.MAX_SAFE_INTEGER + 1 } }, { ...good, stats: { ...good.stats, matchedRequests: 4 } }, { ...good, stats: { ...good.stats, removedLines: 1 } }, { ...good, stats: { ...good.stats, updatedAt: 'not-a-date' } }, { ...good, stats: { ...good.stats, lastMatchedAt: null } }]) assert.throws(() => validateStats(bad));
++  assert.equal(validateStats({ ...good, status: 'degraded' }).status, 'degraded');
++});
++
++test('poller marks initial network failure unavailable, keeps stale success, times out without overlap and pauses when hidden', async () => {
++  let visible = true;
++  let calls = 0;
++  const poller = createStatsPoller({
++    fetcher: async (_url, { signal }) => {
++      calls++;
++      if (calls === 1) throw new Error('offline');
++      if (calls === 2) return { ok: true, json: async () => good };
++      return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
++    },
++    getVisible: () => visible,
++    timeoutMs: 15,
++  });
++  assert.equal((await poller.refresh()).kind, 'unavailable');
++  assert.equal(poller.state.snapshot, null);
++  assert.equal((await poller.refresh()).kind, 'ok');
++  const first = poller.refresh();
++  const second = poller.refresh();
++  assert.equal((await first).kind, 'stale');
++  assert.equal((await second).kind, 'stale');
++  assert.equal(calls, 3);
++  visible = false;
++  assert.equal((await poller.refresh()).kind, 'paused');
++  assert.equal(calls, 3);
++  poller.stop();
++});
++
++test('manifest and initial page use the real page bridge service handoff', async () => {
++  const root = resolve(new URL('..', import.meta.url).pathname);
++  const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
++  assert.deepEqual(pkg['magpie'].page, { title: 'Session Date Filter', titles: { zh: '会话日期清理' }, file: 'page/index.html', service: { port: 3479, option: 'sessionDateFilterPort' } });
++  assert.equal(pkg['magpie'].options, undefined);
++  const html = await readFile(join(root, 'page/index.html'), 'utf8');
++  const boot = await readFile(join(root, 'page/boot.js'), 'utf8');
++  assert.match(html, /_magpie\/bridge\.js/);
++  assert.match(boot, /window\.magpie\?\.ready/);
++  assert.match(boot, /window\.magpie\?\.service/);
++  assert.match(boot, /uiOrigin/);
++  assert.match(boot, /location\.replace/);
++  assert.doesNotMatch(boot, /fetch\s*\(/);
++});
++
++test('service serves fixed assets and read-only authenticated API with proxy CSP', { skip: typeof Bun === 'undefined' }, async () => {
++  const service = createService({ store: { snapshot: () => good }, port: 0, token: 'a'.repeat(64) });
++  try {
++    const root = service.server.url;
++    for (const [path, type] of [['/', 'text/html'], ['/app.mjs', 'text/javascript'], ['/boot.js', 'text/javascript'], ['/page-bridge.mjs', 'text/javascript'], ['/stats-ui.mjs', 'text/javascript'], ['/style.css', 'text/css']]) {
++      const response = await fetch(new URL(path, root));
++      assert.equal(response.status, 200);
++      assert.match(response.headers.get('content-type'), new RegExp(type));
++    }
++    for (const path of ['/etc/passwd', '/not-a-file.js', '/api/stats?path=/secret']) assert.equal((await fetch(new URL(path, root))).status, 404);
++    const page = await fetch(new URL('/?uiOrigin=https%3A%2F%2Fhost.example&theme=dark&lang=zh-CN', root));
++    assert.equal(page.status, 200);
++    assert.match(page.headers.get('content-security-policy'), /connect-src 'self' https:\/\/host\.example/);
++    assert.match(await page.text(), /window\.__SESSION_DATE_FILTER__=/);
++    assert.equal((await fetch(new URL('/api/stats', root))).status, 401);
++    const options = await fetch(new URL('/api/stats', root), { method: 'OPTIONS', headers: { Origin: 'null', 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'authorization' } });
++    assert.equal(options.status, 204);
++    assert.match(options.headers.get('access-control-allow-headers'), /Authorization/);
++    const stats = await fetch(new URL('/api/stats', root), { headers: { Authorization: `Bearer ${'a'.repeat(64)}`, Origin: 'null' } });
++    assert.equal(stats.status, 200);
++    assert.deepEqual(await stats.json(), good);
++    assert.equal((await fetch(new URL('/api/stats', root), { method: 'POST' })).status, 405);
++    assert.equal((await fetch(new URL('/health', root))).status, 200);
++  } finally { await service.stop(); }
++});

@@ -4,6 +4,10 @@ Status: **local implementation complete; pending independent final acceptance.**
 
 ## Base/HEAD and scope
 
+- BASE `f55c1bcc84297da4147fbf712ac0a1a365296822`; HEAD `4a474e3dfa8b87da9d339b96ea0b28e47dd65b9c`; local commit `feat: add session date statistics page`.
+- Task-specific review patch `task-3-review.patch` (BASE..HEAD full diff); metadata + embedded full patch `task-3-review-package.md`; whole branch BASE..HEAD patch `final-branch-review.patch`.
+- Tarball `dist/task3-final-copy/lobehub-plugin-session-date-filter-0.1.0.tgz`; SHA-256 `583bd1c953b5e9106ea80914fe0051b44166ed6becd98eb325816fcfcef8534f`.
+
 Expected BASE: `f55c1bcc84297da4147fbf712ac0a1a365296822`; branch: `feature/session-date-filter`. Final HEAD is recorded after the single local implementation commit. No host reference repo modifications; no production/NAS/SSH/key/model access, installation, host build, browser run, deployment or publication. Existing logs, diagnosis, fixtures, debug DB and prior review changes were preserved; unrelated files were never staged. Two superseded local tarball outputs were moved to `dist/history/` and retained after final output was made in a fresh subdirectory.
 
 ## Page and host integration contract
