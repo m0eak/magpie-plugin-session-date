@@ -175,8 +175,8 @@ export default { id:'session-date-filter', async server(input, options) { ... } 
 
 实现 `index.mjs` 的try/catch把整个`createService()`及其后状态初始化包在无条件`catch {}`中。`createService()`除预期的listener bind/服务故障（如本测试中的`EADDRINUSE`）外，也可能因程序错误抛出；这些未知错误目前会被误标成`listener-unavailable`并吞掉，随后照常返回hook。这与fix1裁定“catch范围限预期服务故障，未知程序错误不能全吞”存在直接不一致。定位：`index.mjs`中`server()`内`try { service = createService(...); initializePluginServer(...) } catch { ... }`。
 
-按交接边界，本轮不自行改写错误分类或扩大异常策略；需要主代理决定仅对哪些可识别的服务启动故障做partial-degraded，以及未知错误应如何重新抛出。故此提交只打包待复审现场，不能视为I3已验收。
+按交接边界，本轮不自行改写错误分类或扩大异常策略；需要主代理决定仅对哪些可识别的服务启动故障做partial-degraded，以及未知错误应如何重新抛出。fix1已按精确文件集本地提交（`c3cf88c3102e86d937955d8e064a7307b07597e2`）；完整review patch已生成于 `task-2-fix-1-review.patch`，但不能视为I3已验收。
 
 ### 本次修改与保护边界
 
-仅更新本交接记录与`progress.md`当前摘要；实现、测试及spec不因接手而扩展。将精确提交fix1源文件/测试/README/spec/两份追踪文档；不纳入原始日志、DB/WAL、debug探针、`test-data/`、fixture及其他未知untracked文件。提交后生成从FIX_BASE到新HEAD的完整review patch；独立复审仍须另行执行。
+仅更新本交接记录与`progress.md`当前摘要；实现、测试及spec不因接手而扩展。将精确提交fix1源文件/测试/README/spec/两份追踪文档；不纳入原始日志、DB/WAL、debug探针、`test-data/`、fixture及其他未知untracked文件。已从FIX_BASE生成到本地HEAD的完整review patch；独立复审仍须另行执行。
