@@ -9,6 +9,7 @@ import { onRequest, createRequestHook } from '../src/request.hooks.mjs';
 import { StatsStore, configureStatsStore, getStatsStore, resetStatsStoreForTests } from '../src/stats-store.mjs';
 import { createService } from '../src/service-api.mjs';
 import { initializePluginServer, getPluginServerStatus } from '../src/plugin-server-status.mjs';
+import { validateStats } from '../src/stats-ui.mjs';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const testDataRoot = join(root, 'test-data', `task2-${process.pid}`);
@@ -803,6 +804,45 @@ test('record and commit range failures are atomic and retain exact pending data'
   assert.equal(afterSnapshot.status, 'degraded');
   assert.deepEqual([afterSnapshot.stats.processedRequests, afterSnapshot.stats.matchedRequests, afterSnapshot.stats.removedLines], [1, 0, 0]);
   await seed.close();
+});
+
+test('snapshot marks pending merge overflow degraded and returns safe committed aggregate', async () => {
+  const dir = await freshDir('controller-snapshot-range');
+  const store = new StatsStore({ dataDir: dir, autoFlush: false });
+  const at = '2026-11-07T12:34:56.000Z';
+  try {
+    store.record({ matched: false, removedLines: 0, at });
+    assert.equal((await store.flush()).status, 'ok');
+    store.db.run('UPDATE stats SET processed_requests=? WHERE id=1', Number.MAX_SAFE_INTEGER);
+    const beforeRow = store.db.query('SELECT * FROM stats WHERE id=1').get();
+    assert.equal(store.record({ matched: false, removedLines: 0, at: '2026-11-07T12:34:57.000Z' }), true);
+    const pendingBefore = structuredClone(store.pending);
+
+    const snapshot = store.snapshot();
+    assert.equal(snapshot.status, 'degraded', 'unsafe committed+pending merge cannot be reported healthy');
+    assert.deepEqual(snapshot.stats, {
+      processedRequests: Number.MAX_SAFE_INTEGER, matchedRequests: 0, removedLines: 0, unmatchedRequests: Number.MAX_SAFE_INTEGER,
+      startedAt: at, updatedAt: at, lastMatchedAt: null,
+    });
+    assert.match(snapshot.persistence, /pending.*safe integer range/);
+    assert.doesNotThrow(() => validateStats(snapshot), 'degraded fallback must remain page-consumable');
+    assert.deepEqual(store.pending, pendingBefore, 'snapshot must not consume or mutate pending data');
+    assert.deepEqual(store.db.query('SELECT * FROM stats WHERE id=1').get(), beforeRow, 'snapshot must not change persisted row');
+
+    assert.equal((await store.flush()).status, 'degraded', 'flush still refuses the unsafe aggregate');
+    assert.deepEqual(store.pending, pendingBefore, 'failed flush retains the complete pending record');
+    assert.equal(store.db, null, 'overflow degrades storage without keeping a misleading writable connection');
+    const { Database } = await import('bun:sqlite');
+    const verify = new Database(join(dir, 'stats.sqlite'), { readonly: true, safeIntegers: true });
+    try {
+      assert.deepEqual(verify.query('SELECT * FROM stats WHERE id=1').get(), beforeRow, 'flush overflow leaves the physical row unchanged');
+    } finally {
+      verify.close();
+    }
+    assert.doesNotThrow(() => validateStats(store.snapshot()), 'repeated degraded snapshot remains valid for the page');
+  } finally {
+    await store.close();
+  }
 });
 
 test.after(async () => {

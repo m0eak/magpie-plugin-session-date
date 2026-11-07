@@ -106,10 +106,6 @@ export class StatsStore {
           this.retryWindowStartedAt = null;
           this.retryCount = 0;
         }
-        if (this.retryWindowStartedAt != null && Date.now() - this.retryWindowStartedAt >= RETRY_BUDGET_MS) {
-          this.retryWindowStartedAt = null;
-          this.retryCount = 0;
-        }
         void this.flush().catch(() => {});
       }, flushIntervalMs);
       this.timer?.unref?.();
@@ -254,19 +250,32 @@ export class StatsStore {
     const processedRequests = committed.processedRequests + pending.processedRequests;
     const matchedRequests = committed.matchedRequests + pending.matchedRequests;
     const removedLines = committed.removedLines + pending.removedLines;
+    const hasSafeAggregate = [processedRequests, matchedRequests, removedLines].every(Number.isSafeInteger) &&
+      matchedRequests <= processedRequests && removedLines >= matchedRequests;
+    const stats = hasSafeAggregate ? {
+      processedRequests,
+      matchedRequests,
+      removedLines,
+      unmatchedRequests: processedRequests - matchedRequests,
+      startedAt: earliest(committed.startedAt, pending.startedAt),
+      updatedAt: latest(committed.updatedAt, pending.updatedAt),
+      lastMatchedAt: latest(committed.lastMatchedAt, pending.lastMatchedAt),
+    } : {
+      processedRequests: committed.processedRequests,
+      matchedRequests: committed.matchedRequests,
+      removedLines: committed.removedLines,
+      unmatchedRequests: committed.unmatchedRequests,
+      startedAt: committed.startedAt,
+      updatedAt: committed.updatedAt,
+      lastMatchedAt: committed.lastMatchedAt,
+    };
     return {
       schemaVersion: SCHEMA_VERSION,
-      status: this.failed ? 'degraded' : 'ok',
-      stats: {
-        processedRequests,
-        matchedRequests,
-        removedLines,
-        unmatchedRequests: processedRequests - matchedRequests,
-        startedAt: earliest(committed.startedAt, pending.startedAt),
-        updatedAt: latest(committed.updatedAt, pending.updatedAt),
-        lastMatchedAt: latest(committed.lastMatchedAt, pending.lastMatchedAt),
-      },
-      persistence: 'SQLite WAL; this host includes local pending counters; other hosts appear after commit. Normal flush interval is about 30 seconds; persistent lock failures may delay visibility, and unflushed local counters may be lost on process crash.',
+      status: this.failed || !hasSafeAggregate ? 'degraded' : 'ok',
+      stats,
+      persistence: hasSafeAggregate
+        ? 'SQLite WAL; this host includes local pending counters; other hosts appear after commit. Normal flush interval is about 30 seconds; persistent lock failures may delay visibility, and unflushed local counters may be lost on process crash.'
+        : 'SQLite WAL; pending counters are not included in this snapshot because the aggregate exceeds the safe integer range.',
     };
   }
 
