@@ -58,4 +58,4 @@ Commands and results:
 
 - Commit subject: `docs: correct local plugin installation and acceptance state`.
 - Only `README.md` and `.superpowers/sdd/session-date-filter/install-doc-fix/report.md` are to be staged; pre-existing changes and untracked evidence remain untouched.
-- The documentation commit's SHA and resulting HEAD are identified by the repository's `git log` after commit. `review.patch` is generated separately after commit, contains BASE..HEAD log/stat/full diff, and remains untracked/uncommitted.
+- `review.patch` is generated separately after commit, contains BASE..HEAD log/stat/full diff, and remains untracked/uncommitted. Initial documentation commit: `bd47bb02584c343dca7dceab8ecf6fa887ece985` (`docs: correct local plugin installation and acceptance state`). This report records that commit; a follow-up metadata-only commit records final verification/patch state, and the resulting HEAD is shown in `git log`.
