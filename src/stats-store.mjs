@@ -27,7 +27,11 @@ const addCount = (a, b) => {
   return a + b;
 };
 
-const validISO = (s) => typeof s === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(s) && Number.isFinite(Date.parse(s));
+const validISO = (s) => {
+  if (typeof s !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(s)) return false;
+  const millis = Date.parse(s);
+  return Number.isFinite(millis) && new Date(millis).toISOString() === s;
+};
 const earliest = (a, b) => a == null ? b : b == null ? a : a <= b ? a : b;
 const latest = (a, b) => a == null ? b : b == null ? a : a >= b ? a : b;
 
@@ -41,12 +45,20 @@ function storedCount(value) {
 function validateStoredRow(row) {
   const processed = storedCount(row.processed_requests);
   const matched = storedCount(row.matched_requests);
-  storedCount(row.removed_lines);
-  if (matched > processed) throw Object.assign(new Error('invalid aggregate relationship'), { code: 'SQLITE_CORRUPT' });
-  for (const value of [row.started_at, row.updated_at, row.last_matched_at]) {
+  const removed = storedCount(row.removed_lines);
+  const timestamps = [row.started_at, row.updated_at, row.last_matched_at];
+  for (const value of timestamps) {
     if (value !== null && !validISO(value)) throw Object.assign(new Error('invalid aggregate timestamp'), { code: 'SQLITE_CORRUPT' });
   }
-  return { processed, matched };
+  const [startedAt, updatedAt, lastMatchedAt] = timestamps;
+  const invalidRelationship = matched > processed || removed < matched ||
+    (matched === 0 && (removed !== 0 || lastMatchedAt !== null)) ||
+    (processed === 0 ? startedAt !== null || updatedAt !== null || matched !== 0 || removed !== 0 : startedAt === null || updatedAt === null) ||
+    (matched > 0 && lastMatchedAt === null) ||
+    (startedAt !== null && updatedAt !== null && startedAt > updatedAt) ||
+    (lastMatchedAt !== null && (lastMatchedAt < startedAt || lastMatchedAt > updatedAt));
+  if (invalidRelationship) throw Object.assign(new Error('invalid aggregate relationship'), { code: 'SQLITE_CORRUPT' });
+  return { processed, matched, removed };
 }
 
 function emptyPending() {
@@ -84,10 +96,16 @@ export class StatsStore {
     this.closed = false;
     this.initialized = false;
     this.unavailable = false;
+    this.retryCount = 0;
+    this.retryWindowStartedAt = null;
     this.db = null;
     this.flushPromise = null;
     if (autoFlush) {
       this.timer = this.schedule(() => {
+        if (this.retryWindowStartedAt != null && Date.now() - this.retryWindowStartedAt >= RETRY_BUDGET_MS) {
+          this.retryWindowStartedAt = null;
+          this.retryCount = 0;
+        }
         if (this.retryWindowStartedAt != null && Date.now() - this.retryWindowStartedAt >= RETRY_BUDGET_MS) {
           this.retryWindowStartedAt = null;
           this.retryCount = 0;
@@ -105,18 +123,25 @@ export class StatsStore {
   }
 
   record({ matched = false, removedLines = 0, at } = {}) {
-    if (this.closed || this.pending.processedRequests >= MAX_SAFE) return false;
-    if (!Number.isSafeInteger(removedLines) || removedLines < 0) return false;
-    const timestamp = validISO(at) ? at : this.#nowISO();
-    this.pending.processedRequests = addCount(this.pending.processedRequests, 1);
-    this.pending.startedAt = earliest(this.pending.startedAt, timestamp);
-    this.pending.updatedAt = latest(this.pending.updatedAt, timestamp);
-    if (matched && removedLines > 0) {
-      this.pending.matchedRequests = addCount(this.pending.matchedRequests, 1);
-      this.pending.removedLines = addCount(this.pending.removedLines, removedLines);
-      this.pending.lastMatchedAt = latest(this.pending.lastMatchedAt, timestamp);
+    if (this.closed || typeof matched !== 'boolean' || !Number.isSafeInteger(removedLines) || removedLines < 0 || (matched && removedLines === 0) || (!matched && removedLines !== 0)) return false;
+    if (at !== undefined && !validISO(at)) return false;
+    const timestamp = at ?? this.#nowISO();
+    try {
+      const next = this.pending.processedRequests === 0 ? emptyPending() : { ...this.pending };
+      next.processedRequests = addCount(next.processedRequests, 1);
+      next.startedAt = earliest(next.startedAt, timestamp);
+      next.updatedAt = latest(next.updatedAt, timestamp);
+      if (matched) {
+        next.matchedRequests = addCount(next.matchedRequests, 1);
+        next.removedLines = addCount(next.removedLines, removedLines);
+        next.lastMatchedAt = latest(next.lastMatchedAt, timestamp);
+      }
+      Object.assign(this.pending, next);
+      return true;
+    } catch (error) {
+      if (error?.code === 'SQLITE_FULL') throw error;
+      return false;
     }
-    return true;
   }
 
   #setFailure(error, permanent = false) {
@@ -206,12 +231,12 @@ export class StatsStore {
     try {
       const row = this.db.query('SELECT schema_version,processed_requests,matched_requests,removed_lines,started_at,updated_at,last_matched_at FROM stats WHERE id=1').get();
       if (!row || Number(row.schema_version) !== SCHEMA_VERSION) throw Object.assign(new Error('unknown schema'), { code: 'SQLITE_SCHEMA' });
-      const { processed, matched } = validateStoredRow(row);
+      const { processed, matched, removed } = validateStoredRow(row);
       this.#secureFiles(join(this.dataDir, DB_FILE), require('node:fs'));
       return {
         processedRequests: processed,
         matchedRequests: matched,
-        removedLines: storedCount(row.removed_lines),
+        removedLines: removed,
         unmatchedRequests: processed - matched,
         startedAt: row.started_at,
         updatedAt: row.updated_at,
@@ -226,15 +251,16 @@ export class StatsStore {
   snapshot() {
     const committed = this.#readCommitted();
     const pending = this.pending;
-    const processedRequests = addCount(committed.processedRequests, pending.processedRequests);
-    const matchedRequests = Math.min(processedRequests, addCount(committed.matchedRequests, pending.matchedRequests));
+    const processedRequests = committed.processedRequests + pending.processedRequests;
+    const matchedRequests = committed.matchedRequests + pending.matchedRequests;
+    const removedLines = committed.removedLines + pending.removedLines;
     return {
       schemaVersion: SCHEMA_VERSION,
       status: this.failed ? 'degraded' : 'ok',
       stats: {
         processedRequests,
         matchedRequests,
-        removedLines: addCount(committed.removedLines, pending.removedLines),
+        removedLines,
         unmatchedRequests: processedRequests - matchedRequests,
         startedAt: earliest(committed.startedAt, pending.startedAt),
         updatedAt: latest(committed.updatedAt, pending.updatedAt),
@@ -246,23 +272,14 @@ export class StatsStore {
 
   async flush() {
     if (this.flushPromise) return this.flushPromise;
-    if (this.retryStartedAt != null && Date.now() - this.retryStartedAt >= RETRY_BUDGET_MS) {
-      this.retryStartedAt = null;
-      this.retryCount = 0;
-    }
     this.flushPromise = Promise.resolve().then(() => {
-      if (this.retryWindowStartedAt != null && Date.now() - this.retryWindowStartedAt >= RETRY_BUDGET_MS) {
-        this.retryWindowStartedAt = null;
-        this.retryCount = 0;
-      }
       const result = this.#flushAttempt();
+      if (result.status === 'degraded' && this.failureCode === 'busy') this.#scheduleRetry();
       if (result.status === 'ok') {
-        this.retryStartedAt = null;
+        this.retryWindowStartedAt = null;
         this.retryCount = 0;
         if (this.retryTimer) clearTimeout(this.retryTimer);
         this.retryTimer = null;
-      } else if (this.failureCode === 'busy') {
-        this.#scheduleRetry();
       }
       return result;
     }).finally(() => { this.flushPromise = null; });
@@ -270,12 +287,9 @@ export class StatsStore {
   }
 
   #scheduleRetry() {
-    if (this.closed || this.retryTimer || this.pending.processedRequests === 0) return;
+    if (this.closed || this.retryTimer || this.retryCount >= RETRY_DELAYS_MS.length || this.pending.processedRequests === 0) return;
     if (this.retryWindowStartedAt == null) this.retryWindowStartedAt = Date.now();
-    const elapsed = Date.now() - this.retryWindowStartedAt;
-    if (elapsed >= RETRY_BUDGET_MS || this.retryCount >= RETRY_DELAYS_MS.length) return;
     const delay = RETRY_DELAYS_MS[this.retryCount];
-    if (elapsed + delay > RETRY_BUDGET_MS) return;
     this.retryCount += 1;
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
@@ -292,19 +306,32 @@ export class StatsStore {
     try {
       this.db.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_WAIT_MS};`);
       const apply = this.db.transaction(() => {
+        const current = this.db.query('SELECT schema_version,processed_requests,matched_requests,removed_lines,started_at,updated_at,last_matched_at FROM stats WHERE id=1').get();
+        if (!current || Number(current.schema_version) !== SCHEMA_VERSION) throw Object.assign(new Error('unknown database schema'), { code: 'SQLITE_SCHEMA' });
+        const stored = validateStoredRow(current);
+        const nextProcessed = stored.processed + delta.processedRequests;
+        const nextMatched = stored.matched + delta.matchedRequests;
+        const nextRemoved = stored.removed + delta.removedLines;
+        if (![nextProcessed, nextMatched, nextRemoved].every(Number.isSafeInteger)) {
+          throw Object.assign(new Error('aggregate range exceeded'), { code: 'SQLITE_FULL' });
+        }
+        const nextStartedAt = earliest(current.started_at, delta.startedAt);
+        const nextUpdatedAt = latest(current.updated_at, delta.updatedAt);
+        const nextLastMatchedAt = latest(current.last_matched_at, delta.lastMatchedAt);
+        validateStoredRow({
+          processed_requests: nextProcessed,
+          matched_requests: nextMatched,
+          removed_lines: nextRemoved,
+          started_at: nextStartedAt,
+          updated_at: nextUpdatedAt,
+          last_matched_at: nextLastMatchedAt,
+        });
         const result = this.db.query(`UPDATE stats SET
-          processed_requests = MIN(?, processed_requests + ?),
-          matched_requests = MIN(?, matched_requests + ?),
-          removed_lines = MIN(?, removed_lines + ?),
-          started_at = CASE WHEN started_at IS NULL THEN ? WHEN ? IS NULL THEN started_at ELSE MIN(started_at, ?) END,
-          updated_at = CASE WHEN updated_at IS NULL THEN ? WHEN ? IS NULL THEN updated_at ELSE MAX(updated_at, ?) END,
-          last_matched_at = CASE WHEN last_matched_at IS NULL THEN ? WHEN ? IS NULL THEN last_matched_at ELSE MAX(last_matched_at, ?) END
+          processed_requests = ?, matched_requests = ?, removed_lines = ?,
+          started_at = ?, updated_at = ?, last_matched_at = ?
           WHERE id=1 AND schema_version=?`).run(
-          MAX_SAFE, delta.processedRequests, MAX_SAFE, delta.matchedRequests,
-          MAX_SAFE, delta.removedLines,
-          delta.startedAt, delta.startedAt, delta.startedAt,
-          delta.updatedAt, delta.updatedAt, delta.updatedAt,
-          delta.lastMatchedAt, delta.lastMatchedAt, delta.lastMatchedAt,
+          nextProcessed, nextMatched, nextRemoved,
+          nextStartedAt, nextUpdatedAt, nextLastMatchedAt,
           SCHEMA_VERSION,
         );
         if (result.changes !== 1) throw Object.assign(new Error('unknown database schema'), { code: 'SQLITE_SCHEMA' });
@@ -329,9 +356,21 @@ export class StatsStore {
       return { status: 'ok' };
     } catch (error) {
       this.failed = true;
-      this.failureCode = errorCode(error);
-      if (this.failureCode === 'corrupt' || error?.code === 'SQLITE_SCHEMA') this.unavailable = true;
-      if (this.failureCode === 'busy' && this.retryWindowStartedAt == null) this.retryWindowStartedAt = Date.now();
+      if (error?.code === 'SQLITE_FULL') {
+        this.failureCode = 'unavailable';
+        this.unavailable = true;
+        try { this.db?.close(); } catch {}
+        this.db = null;
+        this.initialized = false;
+      } else {
+        this.failureCode = errorCode(error);
+      }
+      if (this.failureCode !== 'busy') {
+        this.retryWindowStartedAt = null;
+        this.retryCount = 0;
+        if (this.retryTimer) clearTimeout(this.retryTimer);
+        this.retryTimer = null;
+      }
       return { status: 'degraded' };
     }
   }

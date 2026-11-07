@@ -664,6 +664,147 @@ test('plugin server bind failure degrades statistics but keeps the request hook 
   }
 });
 
+test('controller retry window is bounded under a real writer lock and resumes on the next period', async () => {
+  const dir = await freshDir('controller-retry-bounded');
+  const dbFile = join(dir, 'stats.sqlite');
+  const seed = new StatsStore({ dataDir: dir, autoFlush: false });
+  assert.equal(seed.snapshot().status, 'ok');
+  await seed.close();
+
+  const ready = join(dir, 'controller-lock-ready');
+  const release = join(dir, 'controller-lock-release');
+  const locker = spawn('bun', ['-e', `import {Database} from 'bun:sqlite'; import {writeFileSync,existsSync} from 'node:fs'; const db=new Database(${JSON.stringify(dbFile)}); db.exec('BEGIN IMMEDIATE'); writeFileSync(${JSON.stringify(ready)},'1'); const start=Date.now(); while(!existsSync(${JSON.stringify(release)})){if(Date.now()-start>10000)process.exit(3); await new Promise(r=>setTimeout(r,5))} db.exec('COMMIT'); db.close()`], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+  const lockerExit = new Promise((resolveExit, reject) => {
+    locker.once('error', reject);
+    locker.once('exit', (code) => code === 0 ? resolveExit() : reject(new Error(`controller locker exit ${code}`)));
+  });
+  let periodic;
+  let attempts = 0;
+  const store = new StatsStore({ dataDir: dir, autoFlush: true,
+    schedule(fn) { periodic = fn; return { unref() {} }; }, cancelSchedule() {},
+  });
+  const realSetTimeout = globalThis.setTimeout;
+  const actualRetryDelays = [];
+  const configuredDelays = new Set([25, 75, 200, 500, 1000]);
+  globalThis.setTimeout = (fn, ms, ...args) => {
+    if (configuredDelays.has(ms)) {
+      actualRetryDelays.push(ms);
+      return realSetTimeout(fn, 5, ...args);
+    }
+    return realSetTimeout(fn, ms, ...args);
+  };
+  try {
+    const readyStart = Date.now();
+    while (Date.now() - readyStart < 5000) {
+      try { await stat(ready); break; } catch { await new Promise((r) => realSetTimeout(r, 5)); }
+    }
+    await stat(ready);
+    const originalFlush = store.flush.bind(store);
+    store.flush = (...args) => { attempts += 1; return originalFlush(...args); };
+    store.record({ matched: true, removedLines: 1, at: '2026-11-07T12:34:56.000Z' });
+    assert.equal(store.db, null, 'first locked flush starts before this store has opened SQLite');
+    assert.equal((await store.flush()).status, 'degraded');
+    const exhaustedBy = Date.now() + 2500;
+    while (attempts < 6 && Date.now() < exhaustedBy) await new Promise((r) => realSetTimeout(r, 10));
+    assert.deepEqual(actualRetryDelays, [25, 75, 200, 500, 1000], 'finite retries honor the configured backoff ladder');
+    const attemptsAtExhaustion = attempts;
+    assert.ok(attemptsAtExhaustion >= 5 && attemptsAtExhaustion <= 6, `finite retry attempt count: ${attemptsAtExhaustion}`);
+    assert.equal(Number.isSafeInteger(store.retryCount), true);
+    assert.equal(store.retryCount, 5);
+    assert.equal(store.pending.processedRequests, 1, 'failed attempts retain pending data');
+    assert.equal(store.failed, true);
+    await new Promise((r) => realSetTimeout(r, 50));
+    assert.equal(attempts, attemptsAtExhaustion, 'exhausted retry window must not self-schedule another attempt');
+
+    const attemptsBeforeRecovery = attempts;
+    writeFileSync(release, '1', { mode: 0o600 });
+    await lockerExit;
+    periodic();
+    const recoveredBy = Date.now() + 3000;
+    while (store.pending.processedRequests !== 0 && Date.now() < recoveredBy) await new Promise((r) => realSetTimeout(r, 10));
+    assert.equal(attempts, attemptsBeforeRecovery + 1, 'regular period retries once after the lock is released');
+    assert.equal(store.pending.processedRequests, 0, 'regular period retries and commits after the real lock is released');
+    assert.deepEqual([store.snapshot().stats.processedRequests, store.snapshot().stats.matchedRequests, store.snapshot().stats.removedLines], [1, 1, 1]);
+    assert.equal(store.snapshot().status, 'ok');
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+    try { writeFileSync(release, '1', { mode: 0o600 }); } catch {}
+    if (locker.exitCode === null) locker.kill();
+    await lockerExit.catch(() => {});
+    await store.close();
+  }
+});
+
+test('corrupt stored aggregate invariants degrade and flush never overwrites the bad row', async () => {
+  const corruptions = [
+    ['removed below matched', 'UPDATE stats SET removed_lines=0 WHERE id=1'],
+    ['removed without any match', 'UPDATE stats SET matched_requests=0, removed_lines=3, last_matched_at=NULL WHERE id=1'],
+    ['processed has no start time', 'UPDATE stats SET started_at=NULL WHERE id=1'],
+    ['processed has no update time', 'UPDATE stats SET updated_at=NULL WHERE id=1'],
+    ['matched has no last-match time', 'UPDATE stats SET last_matched_at=NULL WHERE id=1'],
+    ['unmatched row retains last-match time', 'UPDATE stats SET matched_requests=0, removed_lines=0 WHERE id=1'],
+    ['zero processed row retains timestamps', 'UPDATE stats SET processed_requests=0, matched_requests=0, removed_lines=0 WHERE id=1'],
+    ['noncanonical UTC date', "UPDATE stats SET started_at='2026-02-30T00:00:00.000Z' WHERE id=1"],
+    ['last match is later than aggregate update', "UPDATE stats SET updated_at='2026-11-07T12:34:55.000Z' WHERE id=1"],
+  ];
+  for (const [label, mutation] of corruptions) {
+    const dir = await freshDir(`controller-corrupt-${label.replaceAll(' ', '-')}`);
+    const seed = new StatsStore({ dataDir: dir, autoFlush: false });
+    seed.record({ matched: true, removedLines: 3, at: '2026-11-07T12:34:56.000Z' });
+    assert.equal((await seed.flush()).status, 'ok');
+    await seed.close();
+    const dbFile = join(dir, 'stats.sqlite');
+    const { Database } = await import('bun:sqlite');
+    const corrupting = new Database(dbFile);
+    corrupting.run(mutation);
+    const before = corrupting.query('SELECT * FROM stats WHERE id=1').get();
+    corrupting.close();
+
+    const store = new StatsStore({ dataDir: dir, autoFlush: false });
+    store.record({ matched: false, removedLines: 0, at: '2026-11-07T12:34:57.000Z' });
+    assert.equal((await store.flush()).status, 'degraded', `${label}: flush must reject the corrupt aggregate`);
+    assert.equal(store.pending.processedRequests, 1, `${label}: pending increment must remain uncommitted`);
+    assert.equal(store.snapshot().status, 'degraded', `${label}: corruption is not healthy`);
+    const verify = new Database(dbFile, { readonly: true });
+    assert.deepEqual(verify.query('SELECT * FROM stats WHERE id=1').get(), before, `${label}: stored row must remain unchanged`);
+    verify.close();
+    await store.close();
+  }
+});
+
+test('record and commit range failures are atomic and retain exact pending data', async () => {
+  const dir = await freshDir('controller-range-atomic');
+  const store = new StatsStore({ dataDir: dir, autoFlush: false });
+  store.record({ matched: true, removedLines: Number.MAX_SAFE_INTEGER, at: '2026-11-07T12:34:56.000Z' });
+  const before = structuredClone(store.pending);
+  assert.throws(() => store.record({ matched: true, removedLines: 1, at: '2026-11-07T12:34:57.000Z' }), /aggregate range exceeded/);
+  assert.deepEqual(store.pending, before, 'record overflow leaves every pending field unchanged');
+  assert.equal(store.record({ matched: 'yes', removedLines: 0, at: '2026-11-07T12:34:57.000Z' }), false);
+  assert.deepEqual(store.pending, before, 'invalid event leaves every pending field unchanged');
+  assert.equal(store.record({ matched: true, removedLines: 1, at: 'not-a-UTC-timestamp' }), false);
+  assert.deepEqual(store.pending, before, 'invalid timestamp leaves every pending field unchanged');
+  await store.close();
+
+  const seed = new StatsStore({ dataDir: join(dir, 'committed-overflow'), autoFlush: false });
+  seed.record({ matched: true, removedLines: Number.MAX_SAFE_INTEGER, at: '2026-11-07T12:34:56.000Z' });
+  assert.equal((await seed.flush()).status, 'ok');
+  seed.db.run('UPDATE stats SET processed_requests=? WHERE id=1', Number.MAX_SAFE_INTEGER);
+  const committedBefore = seed.db.query('SELECT * FROM stats WHERE id=1').get();
+  assert.equal(seed.record({ matched: false, removedLines: 0, at: '2026-11-07T12:34:57.000Z' }), true);
+  const commitDelta = structuredClone(seed.pending);
+  assert.equal((await seed.flush()).status, 'degraded', 'SQL aggregate overflow must not be silently saturated');
+  assert.deepEqual(seed.pending, commitDelta, 'failed transaction retains the full pending delta');
+  assert.equal(seed.failed, true);
+  const { Database } = await import('bun:sqlite');
+  const verifyCommitted = new Database(join(seed.dataDir, 'stats.sqlite'), { readonly: true, safeIntegers: true });
+  assert.deepEqual(verifyCommitted.query('SELECT * FROM stats WHERE id=1').get(), committedBefore);
+  verifyCommitted.close();
+  const afterSnapshot = seed.snapshot();
+  assert.equal(afterSnapshot.status, 'degraded');
+  assert.deepEqual([afterSnapshot.stats.processedRequests, afterSnapshot.stats.matchedRequests, afterSnapshot.stats.removedLines], [1, 0, 0]);
+  await seed.close();
+});
+
 test.after(async () => {
   await rm(testDataRoot, { recursive: true, force: true });
 });
