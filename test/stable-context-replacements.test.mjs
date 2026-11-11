@@ -178,3 +178,234 @@ test('repeated agent entries collapse with the list and count as one replaced bl
   assert.equal(result.availableAgentsReplacedBlocks, 1);
   assert.equal((result.body.messages[0].content.match(/When Agent Management tools are available/g) ?? []).length, 1);
 });
+
+const HOST_ENVIRONMENT_WRAPPERS = [
+  '<agent_knowledge><instruction>Knowledge</instruction></agent_knowledge>',
+  '<available_tools description="Installed tools"><tool identifier="x" name="Example">Use it</tool></available_tools>',
+  '<expertise><domain id="ops" name="Operations">Scope</domain></expertise>',
+  '<group_context>Group context</group_context>',
+  '<discord_context><channel id="channel-1" /></discord_context>',
+  '<plan><goal>Keep the context stable</goal></plan>',
+  '<agent_documents_index>Documents</agent_documents_index>',
+  '<agent_document id="doc-1">Document</agent_document>',
+  '<current_agent_context><instruction>Agent builder</instruction></current_agent_context>',
+  '<current_group_context><instruction>Group builder</instruction></current_group_context>',
+  '<onboarding_context><phase>discover</phase></onboarding_context>',
+  '<user_memory><instruction>Memory</instruction></user_memory>',
+];
+
+function environmentWithWrappers(wrapperOrder) {
+  return [
+    ...wrapperOrder,
+    '<agent_management_context>',
+    '  <instruction>Delegate matching requests.</instruction>',
+    '  <current_agent id="self" />',
+    '  <available_models>Models</available_models>',
+    '  <available_agents>',
+    '    <note>Only the 10 most recently updated agents are listed here.</note>',
+    '    <agent id="agt_a">Alpha</agent>',
+    '  </available_agents>',
+    '  <available_plugins>Plugins</available_plugins>',
+    '</agent_management_context>',
+  ].join('\n');
+}
+
+test('recognizes the shared host environment with known wrappers around agent management', () => {
+  const source = environmentWithWrappers(HOST_ENVIRONMENT_WRAPPERS);
+  const result = filterRequest(
+    { messages: [{ role: 'user', content: source }] },
+    'chat',
+    { sessionDate: false, topicTitle: false, availableAgents: true },
+  );
+
+  assert.equal(result.availableAgentsReplacedBlocks, 1);
+  assert.equal(result.body.messages[0].content.includes('<agent_knowledge>'), true);
+  assert.equal(result.body.messages[0].content.includes('<available_tools description="Installed tools">'), true);
+  assert.equal(result.body.messages[0].content.includes('<onboarding_context>'), true);
+  assert.equal(result.body.messages[0].content.includes('<available_agents>\nWhen Agent Management tools are available'), true);
+  assert.equal(result.body.messages[0].content.includes('<agent id="agt_a">Alpha</agent>'), false);
+});
+
+test('recognizes shared host wrappers in every supported protocol', () => {
+  const source = environmentWithWrappers([
+    HOST_ENVIRONMENT_WRAPPERS[0],
+    HOST_ENVIRONMENT_WRAPPERS[1],
+  ]);
+  const opts = { sessionDate: false, topicTitle: false, availableAgents: true };
+  const bodies = {
+    chat: { messages: [{ role: 'user', content: source }] },
+    responses: { input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: source }] }] },
+    anthropic: { messages: [{ role: 'user', content: [{ type: 'text', text: source }] }] },
+    gemini: { contents: [{ role: 'user', parts: [{ text: source }] }] },
+  };
+
+  for (const [protocol, body] of Object.entries(bodies)) {
+    const result = filterRequest(body, protocol, opts);
+    assert.equal(result.availableAgentsReplacedBlocks, 1, protocol);
+    const text = protocol === 'chat'
+      ? result.body.messages[0].content
+      : protocol === 'responses'
+        ? result.body.input[0].content[0].text
+        : protocol === 'anthropic'
+          ? result.body.messages[0].content[0].text
+          : result.body.contents[0].parts[0].text;
+    assert.equal(text.includes('<agent_knowledge>'), true, protocol);
+    assert.equal(text.includes('<available_tools description="Installed tools">'), true, protocol);
+    assert.equal(text.includes('<available_agents>\nWhen Agent Management tools are available'), true, protocol);
+  }
+});
+
+function environmentWithManagementAround(before, after, agents = AGENTS_A) {
+  return [
+    ...before,
+    agents,
+    ...after,
+  ].join('\n');
+}
+
+function protocolEnvironmentCases(source) {
+  return [
+    ['chat', {
+      messages: [{ role: 'user', content: source }],
+      tools: [{ type: 'function', function: { name: 'keep_chat_tool' } }],
+      cache_control: { type: 'ephemeral' },
+    }, (body) => body.messages[0].content],
+    ['responses', {
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: source }] }],
+      tools: [{ type: 'function', name: 'keep_responses_tool' }],
+      prompt_cache_key: 'keep-responses-cache-key',
+    }, (body) => body.input[0].content[0].text],
+    ['anthropic', {
+      messages: [{ role: 'user', content: source }],
+      tools: [{ name: 'keep_anthropic_tool' }],
+      cache_control: { type: 'ephemeral' },
+    }, (body) => body.messages[0].content],
+    ['gemini', {
+      contents: [{ role: 'user', parts: [{ text: source }] }],
+      systemInstruction: { parts: [{ text: 'keep system instruction' }], vendorMeta: { keep: true } },
+      tools: [{ functionDeclarations: [{ name: 'keep_gemini_tool' }] }],
+      generationConfig: { temperature: 0.2 },
+    }, (body) => body.contents[0].parts[0].text],
+  ];
+}
+
+test('replaces agent lists when knowledge and tool wrappers appear before or after them in every protocol', () => {
+  const knowledge = '<agent_knowledge><instruction>Knowledge stays.</instruction></agent_knowledge>';
+  const tools = '<available_tools description="Installed tools"><tool identifier="x">Tool stays.</tool></available_tools>';
+  const variants = [
+    { before: [knowledge], after: [] },
+    { before: [], after: [knowledge] },
+    { before: [tools], after: [] },
+    { before: [], after: [tools] },
+    { before: [knowledge], after: [tools] },
+    { before: [tools], after: [knowledge, '<plan><goal>Plan stays.</goal></plan>'] },
+  ];
+
+  for (const { before, after } of variants) {
+    const source = environmentWithManagementAround(before, after);
+    for (const [protocol, body, getText] of protocolEnvironmentCases(source)) {
+      const original = structuredClone(body);
+      const result = filterRequest(body, protocol, options);
+      assert.equal(result.availableAgentsReplacedBlocks, 1, `${protocol} replaces one list`);
+      assert.equal(result.changed, true, `${protocol} reports a change`);
+      const text = getText(result.body);
+      assert.equal(text.includes(AVAILABLE_AGENTS_GUIDANCE), true, `${protocol} has fixed guidance`);
+      for (const wrapper of [...before, ...after]) {
+        assert.equal(text.includes(wrapper), true, `${protocol} keeps ${wrapper}`);
+      }
+      assert.deepEqual(body, original, `${protocol} does not mutate its input`);
+      assert.deepEqual(
+        Object.fromEntries(Object.entries(result.body).filter(([key]) => key !== 'messages' && key !== 'input' && key !== 'contents')),
+        Object.fromEntries(Object.entries(original).filter(([key]) => key !== 'messages' && key !== 'input' && key !== 'contents')),
+        `${protocol} keeps tools and cache metadata`,
+      );
+    }
+  }
+});
+
+test('keeps the supported non-management wrappers byte-for-byte while replacing the list', () => {
+  for (const wrapper of HOST_ENVIRONMENT_WRAPPERS) {
+    const source = environmentWithManagementAround([wrapper], []);
+    const result = filterRequest(
+      { messages: [{ role: 'user', content: source }] },
+      'chat',
+      options,
+    );
+    assert.equal(result.availableAgentsReplacedBlocks, 1, wrapper);
+    assert.equal(result.body.messages[0].content.includes(wrapper), true, wrapper);
+  }
+});
+
+test('produces the same final payload when only the dynamic agent list changes', () => {
+  for (const [protocol, bodyA, getText] of protocolEnvironmentCases(
+    environmentWithManagementAround(['<agent_knowledge>Knowledge</agent_knowledge>'], []),
+  )) {
+    const sourceA = getText(bodyA);
+    const bodyB = structuredClone(bodyA);
+    const replaceText = (body) => {
+      if (protocol === 'chat' || protocol === 'anthropic') return body.messages[0].content;
+      if (protocol === 'responses') return body.input[0].content[0].text;
+      return body.contents[0].parts[0].text;
+    };
+    const setText = (body, text) => {
+      if (protocol === 'chat' || protocol === 'anthropic') body.messages[0].content = text;
+      else if (protocol === 'responses') body.input[0].content[0].text = text;
+      else body.contents[0].parts[0].text = text;
+    };
+    setText(bodyB, sourceA.replace(AGENTS_A, AGENTS_B));
+    const resultA = filterRequest(bodyA, protocol, options);
+    const resultB = filterRequest(bodyB, protocol, options);
+    assert.deepEqual(resultA.body, resultB.body, `${protocol} final payload is stable`);
+    assert.equal(replaceText(resultA.body).includes(AVAILABLE_AGENTS_GUIDANCE), true, protocol);
+  }
+});
+
+test('does not replace the environment list when the assistant-list switch is disabled', () => {
+  const source = environmentWithManagementAround(['<agent_knowledge>Knowledge</agent_knowledge>'], []);
+  for (const [protocol, body, getText] of protocolEnvironmentCases(source)) {
+    const result = filterRequest(body, protocol, { ...options, availableAgents: false });
+    assert.strictEqual(result.body, body, protocol);
+    assert.equal(result.availableAgentsReplacedBlocks, 0, protocol);
+    assert.equal(getText(body).includes('<agent id="agt_a">'), true, protocol);
+  }
+});
+
+test('rejects unknown, ordinary, fenced, quoted, nested, malformed, and historical user content', () => {
+  const cases = [
+    `<unknown_wrapper>${AGENTS_A}</unknown_wrapper>`,
+    `Please explain this XML:\n${AGENTS_A}`,
+    `\`\`\`xml\n${AGENTS_A}\n\`\`\``,
+    `> ${AGENTS_A.replaceAll('\n', '\n> ')}`,
+    `<outer><agent_management_context>${AGENTS_A}</agent_management_context></outer>`,
+    AGENTS_A.replace('</available_agents>', ''),
+  ];
+  for (const source of cases) {
+    const body = { messages: [{ role: 'user', content: source }] };
+    const result = filterRequest(body, 'chat', options);
+    assert.strictEqual(result.body, body, source.slice(0, 40));
+    assert.equal(result.availableAgentsReplacedBlocks, 0, source.slice(0, 40));
+  }
+
+  const historical = {
+    messages: [
+      { role: 'assistant', content: 'history' },
+      { role: 'user', content: AGENTS_A },
+    ],
+  };
+  const historicalResult = filterRequest(historical, 'chat', options);
+  assert.strictEqual(historicalResult.body, historical);
+  assert.equal(historicalResult.availableAgentsReplacedBlocks, 0);
+});
+
+test('is idempotent after replacing a shared environment list', () => {
+  const body = { messages: [{ role: 'user', content: environmentWithManagementAround(
+    ['<available_tools>Tools</available_tools>'],
+    ['<current_group_context>Group</current_group_context>'],
+  ) }] };
+  const first = filterRequest(body, 'chat', options);
+  const second = filterRequest(first.body, 'chat', options);
+  assert.equal(first.availableAgentsReplacedBlocks, 1);
+  assert.equal(second.changed, false);
+  assert.equal(second.availableAgentsReplacedBlocks, 0);
+  assert.deepEqual(second.body, first.body);
+});

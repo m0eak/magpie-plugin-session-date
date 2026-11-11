@@ -28,7 +28,7 @@ This follow-up did not repeat the November 8 host acceptance, install or reload 
 
 2026-11-11 增加日期与助手名单的固定提示变换：日期行仍按原规则移除，并仅在确实移除合法日期行的文本区域插入一份固定 `current_time_guidance`；助手列表由独立的 `availableAgents` 开关控制，默认关闭，命中时将完整块原位替换为固定 Agent Management 工具说明。列表替换块数、列表命中请求数和时间提示插入块数独立计量，名单替换不计入删除行数。相同固定输出再次处理不会再次命中。
 
-助手名单在 system/developer 内容按有界、配对正确的结构规则匹配，并保护 Markdown 引用和代码围栏。在 chat、Responses、Anthropic、Gemini 中，user 角色仅在会话开始的首条合格环境消息检查：可独立包含完整顶层 `<agent_management_context>`，或与宿主已知的 `<user_memory>`、`<agent_documents_index>` 顶层块合并。只替换名单块，周围环境文字原样保留；不处理 user 日期或标题。assistant/model/tool/function 调用或结果之后的 user 消息不属于环境候选。插件拿不到已被宿主清理掉的 `systemInjection` 标记，因此文本无法证明一个完整结构是否由宿主生成；对完整仿造同一宿主环境结构的正文不声称零误匹配。没有合法名单块时不会改写旧指令或插入替代提示。此处理不保证宿主其他动态块或名单块整体出现/消失时的缓存稳定性。
+助手名单在 system/developer 内容按有界、配对正确的结构规则匹配，并保护 Markdown 引用和代码围栏。在 chat、Responses、Anthropic、Gemini 中，user 角色仅在会话开始的首条合格环境消息检查：可独立包含完整顶层 `<agent_management_context>`，或与宿主已知的 `<user_memory>`、`<expertise>`、`<group_context>`、`<discord_context>`、`<plan>`、`<agent_knowledge>`、`<agent_documents_index>`、`<agent_document>`、`<available_tools>`、`<current_agent_context>`、`<current_group_context>` 和 `<onboarding_context>` 顶层块合并。只替换名单块，其他环境块和周围环境文字原样保留；不处理 user 日期或标题。assistant/model/tool/function 调用或结果之后的 user 消息不属于环境候选。插件拿不到已被宿主清理掉的 `systemInjection` 标记，因此文本无法证明一个完整结构是否由宿主生成；对完整仿造同一宿主环境结构的正文不声称零误匹配。没有合法名单块时不会改写旧指令或插入替代提示。此处理不保证宿主其他动态块或名单块整体出现/消失时的缓存稳定性。
 
 时间提示插入数按实际写入的文本块统计，可大于命中请求数；每个新插入提示必须对应其文本区域中被移除的日期行。统计校验要求每个命中请求至少有一条移除行或一个名单替换块，因此纯名单命中（0 删除行、1 替换块）有效，而没有任何实际改动的命中记录会使统计降级。
 

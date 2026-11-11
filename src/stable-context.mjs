@@ -17,7 +17,24 @@ const OLD_CONTEXT_INSTRUCTION =
 const NEW_CONTEXT_INSTRUCTION =
   'The available_agents section contains tool guidance, not a live agent list. Use searchAgent with source="user" to find workspace agents, then callAgent with agentId and instruction when delegating.';
 const MAIN_CHILDREN = new Set(['instruction', 'current_agent', 'available_models', 'available_agents', 'available_plugins']);
-const ENVIRONMENT_WRAPPERS = new Set(['user_memory', 'agent_documents_index', 'agent_management_context']);
+// These are the top-level XML blocks emitted by LobeHub's shared
+// BaseFirstUserContentProvider pipeline. The allowlist keeps environment-user
+// recognition tied to known host templates instead of accepting arbitrary XML.
+const ENVIRONMENT_WRAPPERS = new Set([
+  'user_memory',
+  'expertise',
+  'group_context',
+  'discord_context',
+  'plan',
+  'agent_knowledge',
+  'agent_documents_index',
+  'agent_document',
+  'available_tools',
+  'current_agent_context',
+  'agent_management_context',
+  'current_group_context',
+  'onboarding_context',
+]);
 const TOKEN_SOURCE = String.raw`<\/?([A-Za-z_][\w.-]*)(?:\s+([^<>]*?))?\s*(\/?)>`;
 
 function parseFragment(xml) {
