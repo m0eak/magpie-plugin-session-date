@@ -1,0 +1,27 @@
+# Private local evidence and publication work
+/.superpowers/
+/sensitive-audit-*/
+/.push/
+/.serena/
+
+# Local build output and dependency/cache state
+/dist/
+/node_modules/
+/coverage/
+/.cache/
+/.npm/
+
+# Local credentials and common transient/runtime files
+/.env
+/.env.*
+!/.env.example
+/.npmrc
+/*.log
+/*.tmp
+/*.sqlite
+/*.sqlite3
+/*.db
+/*.db-wal
+/*.db-shm
+/test-data/
+/*.tgz

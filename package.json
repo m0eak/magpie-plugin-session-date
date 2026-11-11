@@ -4,10 +4,15 @@
   "private": true,
   "type": "module",
   "description": "A narrowly scoped request hook and read-only session date statistics page.",
-  "files": ["src/", "page/", "README.md", "index.mjs"],
+  "files": [
+    "src/",
+    "page/",
+    "README.md",
+    "index.mjs"
+  ],
   "scripts": {
-    "test": "node --test test/matcher.test.mjs test/protocols.test.mjs test/manual-review-fix.test.mjs test/task3-ui.test.mjs test/task3-bridge.test.mjs test/task3-fix.test.mjs && bun test test/task2.test.mjs test/task3-ui.test.mjs test/task3-bridge.test.mjs test/task3-fix.test.mjs && bun run test/task2-integration.bun.mjs",
-    "test:node": "node --test test/matcher.test.mjs test/protocols.test.mjs test/manual-review-fix.test.mjs test/task3-ui.test.mjs test/task3-bridge.test.mjs test/task3-fix.test.mjs",
+    "test": "node --test test/filter-controls-node.mjs test/matcher.test.mjs test/protocols.test.mjs test/manual-review-fix.test.mjs test/prompt-metadata.test.mjs test/task3-ui.test.mjs test/task3-bridge.test.mjs test/task3-fix.test.mjs && bun test test/task2.test.mjs test/task3-ui.test.mjs test/task3-bridge.test.mjs test/task3-fix.test.mjs && bun run test/task2-integration.bun.mjs",
+    "test:node": "node --test test/filter-controls-node.mjs test/matcher.test.mjs test/protocols.test.mjs test/manual-review-fix.test.mjs test/prompt-metadata.test.mjs test/task3-ui.test.mjs test/task3-bridge.test.mjs test/task3-fix.test.mjs",
     "test:task2": "bun test test/task2.test.mjs",
     "test:task2:integration": "bun run test/task2-integration.bun.mjs",
     "start:task2-test": "bun test test/task2.test.mjs"
@@ -27,9 +32,14 @@
     "hooks": "./src/request.hooks.mjs",
     "page": {
       "title": "Session Date Filter",
-      "titles": { "zh": "会话日期清理" },
+      "titles": {
+        "zh": "会话日期清理"
+      },
       "file": "page/index.html",
-      "service": { "port": 3479, "option": "sessionDateFilterPort" }
+      "service": {
+        "port": 3479,
+        "option": "sessionDateFilterPort"
+      }
     }
   }
 }

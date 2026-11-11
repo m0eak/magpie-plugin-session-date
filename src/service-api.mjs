@@ -30,7 +30,7 @@ function validateUiOrigin(value) {
   } catch { return null; }
 }
 
-export function createService({ store, port = 3479, token = '' } = {}) {
+export function createService({ store, configStore, port = 3479, token = '' } = {}) {
   if (!store || typeof store.snapshot !== 'function') throw new TypeError('A stats store is required.');
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new TypeError('Invalid service port.');
   if (token && !NONCE.test(token)) throw new TypeError('Invalid service token.');
@@ -43,7 +43,7 @@ export function createService({ store, port = 3479, token = '' } = {}) {
     const origin = request.headers.get('origin');
     if (requestHost !== host) return jsonResponse({ error: 'Forbidden' }, 403);
     if (origin != null && origin !== 'null' && origin !== `http://${host}`) return jsonResponse({ error: 'Forbidden' }, 403);
-    const isApi = url.pathname === '/api/stats' || url.pathname === '/health';
+    const isApi = url.pathname === '/api/stats' || url.pathname === '/api/settings' || url.pathname === '/health';
     const isRoot = url.pathname === '/';
     const isAsset = ASSETS.has(url.pathname);
     if (!isApi && !isRoot && !isAsset) return jsonResponse({ error: 'Not found' }, 404);
@@ -51,7 +51,7 @@ export function createService({ store, port = 3479, token = '' } = {}) {
     if (isAsset && url.search) return jsonResponse({ error: 'Not found' }, 404);
     const cors = {
       'access-control-allow-origin': origin ?? `http://${host}`,
-      'access-control-allow-methods': 'GET, OPTIONS',
+      'access-control-allow-methods': url.pathname === '/api/settings' ? 'GET, PUT, PATCH, OPTIONS' : 'GET, OPTIONS',
       'access-control-allow-headers': 'Authorization, Content-Type',
       vary: 'Origin',
     };
@@ -60,7 +60,7 @@ export function createService({ store, port = 3479, token = '' } = {}) {
       if (url.search) return jsonResponse({ error: 'Not found' }, 404);
       const requested = request.headers.get('access-control-request-method');
       const requestedHeaders = (request.headers.get('access-control-request-headers') || '').split(',').map((value) => value.trim().toLowerCase()).filter(Boolean);
-      if ((requested && requested !== 'GET') || requestedHeaders.some((header) => !['authorization', 'content-type'].includes(header))) return jsonResponse({ error: 'Method not allowed' }, 405, cors);
+      if ((requested && !['GET', 'PUT', 'PATCH'].includes(requested)) || requestedHeaders.some((header) => !['authorization', 'content-type'].includes(header))) return jsonResponse({ error: 'Method not allowed' }, 405, cors);
       return new Response(null, { status: 204, headers: cors });
     }
     if (isApi && url.search) return jsonResponse({ error: 'Not found' }, 404, cors);
@@ -83,6 +83,26 @@ export function createService({ store, port = 3479, token = '' } = {}) {
           'content-security-policy': `default-src 'none'; script-src 'self' 'nonce-${nonce}'; style-src 'self'; connect-src ${connect}; img-src 'self' data:; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'`,
         });
       } catch { return jsonResponse({ error: 'Asset unavailable' }, 503); }
+    }
+    if (url.pathname === '/api/settings') {
+      if (!token || request.headers.get('authorization') !== `Bearer ${token}`) return jsonResponse({ error: 'Unauthorized' }, 401, cors);
+      if (request.method === 'GET') {
+        const settings = configStore?.snapshot?.();
+        return settings ? jsonResponse({ settings }, 200, cors) : jsonResponse({ error: 'Settings storage unavailable.' }, 503, cors);
+      }
+      if (request.method !== 'PUT' && request.method !== 'PATCH') return jsonResponse({ error: 'Method not allowed' }, 405, cors);
+      let value;
+      try { value = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON' }, 400, cors); }
+      const keys = value && typeof value === 'object' && !Array.isArray(value) ? Object.keys(value) : [];
+      const validPatch = keys.length > 0 && keys.every((key) => ['sessionDate', 'topicTitle'].includes(key) && typeof value[key] === 'boolean');
+      const validFull = keys.length === 2 && validPatch;
+      if (request.method === 'PATCH' && !validPatch) return jsonResponse({ error: 'Settings patch must contain known boolean fields.' }, 400, cors);
+      if (request.method === 'PUT' && !validFull) return jsonResponse({ error: 'Both settings must be booleans.' }, 400, cors);
+      try {
+        const settings = request.method === 'PATCH' ? await configStore.update(value) : await configStore.replace(value);
+        return jsonResponse({ settings }, 200, cors);
+      }
+      catch { return jsonResponse({ error: 'Settings could not be saved.' }, 503, cors); }
     }
     if (isApi && request.method !== 'GET') return jsonResponse({ error: 'Method not allowed' }, 405, cors);
     if (url.pathname === '/api/stats') {

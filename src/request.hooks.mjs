@@ -1,10 +1,11 @@
 import { filterRequest } from './protocols.mjs';
 import { getStatsStore } from './stats-store.mjs';
 import { inspectRequestBody } from './request-measurement.mjs';
+import { getFilterConfig } from './filter-config.mjs';
 
 const SUPPORTED = new Set(['chat', 'responses', 'anthropic', 'gemini']);
 /** Build the public async onRequest hook with narrow dependency injection. */
-export function createRequestHook({ store = getStatsStore, protocols = { filterRequest }, now = () => new Date() } = {}) {
+export function createRequestHook({ store = getStatsStore, config = getFilterConfig, protocols = { filterRequest }, now = () => new Date() } = {}) {
   return async function onRequest(body, ctx) {
     const protocol = ctx?.protocol;
     if (!SUPPORTED.has(protocol)) return undefined;
@@ -23,7 +24,9 @@ export function createRequestHook({ store = getStatsStore, protocols = { filterR
     };
     let result;
     try {
-      result = protocols.filterRequest(body, protocol);
+      const settings = config().snapshot();
+      if (!settings || typeof settings.sessionDate !== 'boolean' || typeof settings.topicTitle !== 'boolean') return undefined;
+      result = protocols.filterRequest(body, protocol, settings);
     } catch {
       if (measurement.measurable) recordStats({ matched: false, removedLines: 0, at });
       return undefined;
@@ -33,7 +36,13 @@ export function createRequestHook({ store = getStatsStore, protocols = { filterR
     const matched = result.removedLines > 0;
     // A safe transform is countable even when unrelated request payloads are
     // unknown; unknown, unmatched requests remain outside aggregate totals.
-    if (matched || measurement.measurable) recordStats({ matched, removedLines: result.removedLines, at });
+    if (matched || measurement.measurable) recordStats({
+      matched,
+      removedLines: result.removedLines,
+      dateRemovedLines: result.dateRemovedLines ?? 0,
+      topicTitleRemovedLines: result.topicTitleRemovedLines ?? 0,
+      at,
+    });
     return matched ? result.body : undefined;
   };
 }
