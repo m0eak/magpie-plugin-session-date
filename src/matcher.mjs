@@ -13,7 +13,7 @@ function lineStartAt(text, offset) {
   return text.lastIndexOf('\n', Math.max(0, offset - 1)) + 1;
 }
 
-function protectedMarkdownLines(text) {
+export function protectedMarkdownLines(text) {
   const protectedLines = new Set();
   let fence = null;
   let quoteContinuation = false;
@@ -86,7 +86,14 @@ function stripPromptMetadata(text, options = {}) {
     if (!protectedLines.has(lineStart) && ((isTitle && options.topicTitle !== false) || (isCurrentDate && options.sessionDate !== false))) {
       removedLines += 1;
       if (isTitle) topicTitleRemovedLines += 1;
-      else dateRemovedLines += 1;
+      else {
+        dateRemovedLines += 1;
+        if (options.dateReplacement && !options.replacementState?.inserted) {
+          output += options.dateReplacement;
+          if (next > lineEnd) output += text.slice(lineEnd, next);
+          if (options.replacementState) options.replacementState.inserted = true;
+        }
+      }
     } else {
       output += text.slice(lineStart, next);
     }
@@ -109,6 +116,11 @@ function stripSessionBlock(text, start, end, protectedLines, options = {}) {
     if (options.sessionDate !== false && insideTarget && !protectedLines.has(lineStart) && isValidCalendarLine(line)) {
       removedLines += 1;
       output += text.slice(cursor, lineStart);
+      if (options.dateReplacement && !options.replacementState?.inserted) {
+        output += options.dateReplacement;
+        if (next > lineEnd) output += text.slice(lineEnd, next);
+        if (options.replacementState) options.replacementState.inserted = true;
+      }
       cursor = next;
     } else {
       const chunkEnd = Math.min(next, end);
@@ -245,13 +257,15 @@ export function stripSessionDates(text, options = {}) {
   const settings = {
     sessionDate: options.sessionDate !== false,
     topicTitle: options.topicTitle !== false,
+    dateReplacement: options.dateReplacement,
+    replacementState: { inserted: false },
   };
   const protectedLines = protectedMarkdownLines(text);
   const scan = scanTopLevelTools(text);
   if (!scan.valid) {
     const metadata = stripPromptMetadata(text, settings);
     return options.withCategories
-      ? metadata
+      ? { ...metadata, timeGuidanceInsertedBlocks: settings.replacementState.inserted ? 1 : 0 }
       : { text: metadata.text, removedLines: metadata.removedLines };
   }
 
@@ -300,6 +314,7 @@ export function stripSessionDates(text, options = {}) {
     removedLines: totalRemovedLines,
     dateRemovedLines: removedLines + metadata.dateRemovedLines,
     topicTitleRemovedLines: metadata.topicTitleRemovedLines,
+    timeGuidanceInsertedBlocks: settings.replacementState.inserted ? 1 : 0,
   };
   return options.withCategories ? result : { text: result.text, removedLines: result.removedLines };
 }

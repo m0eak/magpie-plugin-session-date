@@ -4,16 +4,21 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 const FILE = 'filter-config.json';
-const DEFAULT_FILTER_CONFIG = Object.freeze({ sessionDate: true, topicTitle: true });
+const DEFAULT_FILTER_CONFIG = Object.freeze({ sessionDate: true, topicTitle: true, availableAgents: false });
 const CONFIG_KEYS = Object.keys(DEFAULT_FILTER_CONFIG);
 const POLL_MS = 500;
 const LOCK_POLL_MS = 20;
 const LOCK_TIMEOUT_MS = 10_000;
 
 function validConfig(value) {
-  return value && typeof value === 'object' && !Array.isArray(value) &&
-    typeof value.sessionDate === 'boolean' && typeof value.topicTitle === 'boolean' &&
-    Object.keys(value).length === CONFIG_KEYS.length && CONFIG_KEYS.every((key) => Object.hasOwn(value, key));
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const keys = Object.keys(value);
+  const legacy = CONFIG_KEYS.filter((key) => key !== 'availableAgents');
+  const validKeys = keys.length === legacy.length
+    ? legacy.every((key) => Object.hasOwn(value, key))
+    : keys.length === CONFIG_KEYS.length && CONFIG_KEYS.every((key) => Object.hasOwn(value, key));
+  return validKeys && typeof value.sessionDate === 'boolean' && typeof value.topicTitle === 'boolean' &&
+    (value.availableAgents === undefined || typeof value.availableAgents === 'boolean');
 }
 
 function validPatch(value) {
@@ -25,7 +30,7 @@ function loadFile(path) {
   try {
     const raw = JSON.parse(readFileSync(path, 'utf8'));
     if (!validConfig(raw)) throw new Error('Invalid persisted filter configuration.');
-    return { config: Object.freeze({ sessionDate: raw.sessionDate, topicTitle: raw.topicTitle }), mtime: statSync(path).mtimeMs };
+    return { config: Object.freeze({ sessionDate: raw.sessionDate, topicTitle: raw.topicTitle, availableAgents: raw.availableAgents ?? false }), mtime: statSync(path).mtimeMs };
   } catch (error) {
     if (error?.code === 'ENOENT') return { config: DEFAULT_FILTER_CONFIG, mtime: 0 };
     throw error;
@@ -166,7 +171,7 @@ export class FilterConfigStore {
     if (!this.path) return false;
     try {
       const loaded = loadFile(this.path);
-      if (!this.failed && loaded.mtime === this.mtime && loaded.config.sessionDate === this.config.sessionDate && loaded.config.topicTitle === this.config.topicTitle) return false;
+      if (!this.failed && loaded.mtime === this.mtime && loaded.config.sessionDate === this.config.sessionDate && loaded.config.topicTitle === this.config.topicTitle && loaded.config.availableAgents === this.config.availableAgents) return false;
       this.config = loaded.config;
       this.mtime = loaded.mtime;
       this.failed = false;
@@ -197,7 +202,7 @@ export class FilterConfigStore {
     const release = await acquireLock(lockPath, this.lockOptions);
     try {
       const current = loadFile(this.path).config;
-      const next = Object.freeze(replace ? { ...value } : { ...current, ...value });
+      const next = Object.freeze(replace ? { ...DEFAULT_FILTER_CONFIG, ...value } : { ...current, ...value });
       await persistConfig(this.path, next);
       this.config = next;
       this.mtime = statSync(this.path).mtimeMs;

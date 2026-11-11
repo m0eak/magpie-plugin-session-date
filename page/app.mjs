@@ -2,7 +2,7 @@ import { createPageBridge } from './page-bridge.mjs';
 import { createStatsPoller, readFilterSettings, saveFilterSettings, setServiceToken } from './stats-ui.mjs';
 
 const pageRoot = document.documentElement;
-const fields = Object.fromEntries(['status', 'total', 'processed', 'matched', 'unmatched', 'started', 'lastMatched', 'updated', 'stale', 'refresh', 'dateLines', 'dateHits', 'titleLines', 'titleHits'].map((key) => [key, document.getElementById(key)]));
+const fields = Object.fromEntries(['status', 'total', 'processed', 'matched', 'unmatched', 'started', 'lastMatched', 'updated', 'stale', 'refresh', 'dateLines', 'dateHits', 'titleLines', 'titleHits', 'agentHits', 'agentBlocks', 'timeBlocks', 'sessionDateEnabled', 'topicTitleEnabled', 'availableAgentsEnabled', 'settingsStatus'].map((key) => [key, document.getElementById(key)]));
 const bootstrap = window.__SESSION_DATE_FILTER__;
 const validBootstrap = bootstrap && typeof bootstrap === 'object' && !Array.isArray(bootstrap)
   && typeof bootstrap.token === 'string' && /^[a-f0-9]{64}$/i.test(bootstrap.token)
@@ -45,6 +45,9 @@ if (!validBootstrap) {
     fields.dateHits.textContent = String(stats.dateMatchedRequests ?? 0);
     fields.titleLines.textContent = String(stats.topicTitleRemovedLines ?? 0);
     fields.titleHits.textContent = String(stats.topicTitleMatchedRequests ?? 0);
+    fields.agentHits.textContent = String(stats.availableAgentsMatchedRequests ?? 0);
+    fields.agentBlocks.textContent = String(stats.availableAgentsReplacedBlocks ?? 0);
+    fields.timeBlocks.textContent = String(stats.timeGuidanceInsertedBlocks ?? 0);
     fields.started.textContent = formatTime(stats.startedAt, fields.started);
     fields.lastMatched.textContent = formatTime(stats.lastMatchedAt, fields.lastMatched);
     fields.updated.textContent = formatTime(stats.updatedAt, fields.updated);
@@ -61,6 +64,7 @@ if (!validBootstrap) {
   poller = createStatsPoller({ url: './api/stats', getVisible: () => document.visibilityState === 'visible' && bridge.visible, onState: (kind) => setBusy(kind === 'loading' || kind === 'refreshing') });
   const dateToggle = document.getElementById('sessionDateEnabled');
   const titleToggle = document.getElementById('topicTitleEnabled');
+  const agentsToggle = document.getElementById('availableAgentsEnabled');
   const settingsStatus = document.getElementById('settingsStatus');
   let settings = null;
   let settingsRevision = 0;
@@ -72,6 +76,7 @@ if (!validBootstrap) {
     const disabled = settings === null || settingsReading || settingsSaving;
     dateToggle.disabled = disabled;
     titleToggle.disabled = disabled;
+    agentsToggle.disabled = disabled;
   };
   const loadSettings = async () => {
     if (settingsSaving) {
@@ -88,6 +93,7 @@ if (!validBootstrap) {
       settings = loaded;
       dateToggle.checked = settings.sessionDate;
       titleToggle.checked = settings.topicTitle;
+      agentsToggle.checked = settings.availableAgents;
       settingsStatus.textContent = text('设置已加载', 'Settings loaded');
       settingsStatus.dataset.state = 'ok';
     } catch {
@@ -116,6 +122,7 @@ if (!validBootstrap) {
         settings = saved;
         dateToggle.checked = saved.sessionDate;
         titleToggle.checked = saved.topicTitle;
+        agentsToggle.checked = saved.availableAgents;
         settingsStatus.textContent = text('设置已保存', 'Settings saved');
         settingsStatus.dataset.state = 'ok';
       }
@@ -126,6 +133,7 @@ if (!validBootstrap) {
           settings = confirmed;
           dateToggle.checked = confirmed.sessionDate;
           titleToggle.checked = confirmed.topicTitle;
+          agentsToggle.checked = confirmed.availableAgents;
           const saveApplied = confirmed[key] === enabled;
           settingsStatus.textContent = saveApplied
             ? text('保存响应未确认；已重新读取并确认设置', 'Save response was lost; settings were reread and confirmed')
@@ -156,6 +164,7 @@ if (!validBootstrap) {
   });
   dateToggle.addEventListener('change', () => { void changeSetting('sessionDate', dateToggle.checked); });
   titleToggle.addEventListener('change', () => { void changeSetting('topicTitle', titleToggle.checked); });
+  agentsToggle.addEventListener('change', () => { void changeSetting('availableAgents', agentsToggle.checked); });
   updateSettingsControls();
   void loadSettings();
   document.addEventListener('visibilitychange', () => poller.setVisible(document.visibilityState === 'visible' && bridge.visible));

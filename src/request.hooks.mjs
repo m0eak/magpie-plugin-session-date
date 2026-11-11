@@ -24,8 +24,9 @@ export function createRequestHook({ store = getStatsStore, config = getFilterCon
     };
     let result;
     try {
-      const settings = config().snapshot();
-      if (!settings || typeof settings.sessionDate !== 'boolean' || typeof settings.topicTitle !== 'boolean') {
+      const storedSettings = config().snapshot();
+      const settings = storedSettings && { ...storedSettings, availableAgents: storedSettings.availableAgents ?? false };
+      if (!settings || typeof settings.sessionDate !== 'boolean' || typeof settings.topicTitle !== 'boolean' || typeof settings.availableAgents !== 'boolean') {
         if (measurement.measurable) recordStats({ matched: false, removedLines: 0, at });
         return undefined;
       }
@@ -36,7 +37,7 @@ export function createRequestHook({ store = getStatsStore, config = getFilterCon
     }
     if (!result?.supported || !Number.isSafeInteger(result.removedLines) || result.removedLines < 0) return undefined;
 
-    const matched = result.removedLines > 0;
+    const matched = result.changed === true;
     // A safe transform is countable even when unrelated request payloads are
     // unknown; unknown, unmatched requests remain outside aggregate totals.
     if (matched || measurement.measurable) recordStats({
@@ -44,6 +45,9 @@ export function createRequestHook({ store = getStatsStore, config = getFilterCon
       removedLines: result.removedLines,
       dateRemovedLines: result.dateRemovedLines ?? 0,
       topicTitleRemovedLines: result.topicTitleRemovedLines ?? 0,
+      availableAgentsMatched: result.availableAgentsMatchedRequests > 0,
+      availableAgentsReplacedBlocks: result.availableAgentsReplacedBlocks ?? 0,
+      timeGuidanceInsertedBlocks: result.timeGuidanceInsertedBlocks ?? 0,
       at,
     });
     return matched ? result.body : undefined;

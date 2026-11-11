@@ -7,7 +7,7 @@ import { FilterConfigStore } from '../src/filter-config.mjs';
 import { createRequestHook } from '../src/request.hooks.mjs';
 import { createService } from '../src/service-api.mjs';
 
-const valid = { sessionDate: false, topicTitle: true };
+const valid = { sessionDate: false, topicTitle: true, availableAgents: false };
 const invalid = '{"sessionDate":';
 const makeStore = (dataDir) => new FilterConfigStore({ dataDir, schedule: () => null, cancel() {} });
 const writeConfig = (path, value) => writeFileSync(path, `${JSON.stringify(value)}\n`);
@@ -37,8 +37,8 @@ test('filter settings recover after repeated runtime parse failures, including u
     const transformed = await hook(prompt, { protocol: 'chat' });
     assert.match(transformed.messages[0].content, /Current date: 2026-11-11/);
     assert.doesNotMatch(transformed.messages[0].content, /Topic Title/);
-    assert.deepEqual(await store.update({ topicTitle: false }), { sessionDate: false, topicTitle: false });
-    assert.deepEqual(JSON.parse(readFileSync(store.path, 'utf8')), { sessionDate: false, topicTitle: false });
+    assert.deepEqual(await store.update({ topicTitle: false }), { sessionDate: false, topicTitle: false, availableAgents: false });
+    assert.deepEqual(JSON.parse(readFileSync(store.path, 'utf8')), { sessionDate: false, topicTitle: false, availableAgents: false });
   } finally {
     store.close();
     rmSync(dataDir, { recursive: true, force: true });

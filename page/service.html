@@ -19,6 +19,7 @@
       <h2>过滤开关 / Filters</h2>
       <label><input id="sessionDateEnabled" type="checkbox" disabled> <span>移除日期行 / Remove date lines</span></label>
       <label><input id="topicTitleEnabled" type="checkbox" disabled> <span>移除话题标题行 / Remove topic title line</span></label>
+      <label><input id="availableAgentsEnabled" type="checkbox" disabled> <span>固定助手列表 / Stabilize agent list</span></label>
       <p id="settingsStatus" role="status" aria-live="polite">正在读取设置…</p>
     </section>
     <section class="metrics" aria-label="分类统计">
@@ -26,11 +27,15 @@
       <div class="metric"><span>日期命中请求 / Date matched requests</span><strong id="dateHits">—</strong></div>
       <div class="metric"><span>标题移除行数 / Title lines removed</span><strong id="titleLines">—</strong></div>
       <div class="metric"><span>标题命中请求 / Title matched requests</span><strong id="titleHits">—</strong></div>
+      <div class="metric"><span>助手列表命中请求 / Agent list matched requests</span><strong id="agentHits">—</strong></div>
+      <div class="metric"><span>助手列表替换块数 / Agent list blocks replaced</span><strong id="agentBlocks">—</strong></div>
+      <div class="metric"><span>固定时间提示插入数 / Time guidance blocks inserted</span><strong id="timeBlocks">—</strong></div>
     </section>
     <dl><dt>统计起始 / Started</dt><dd id="started">暂无</dd><dt>最近命中 / Last matched</dt><dd id="lastMatched">暂无</dd><dt>更新时间 / Updated</dt><dd id="updated">暂无</dd></dl>
     <p class="note">统计为提示词变换次数，不代表模型缓存命中率。</p>
-    <p class="note">分类统计从本版本启用后开始；旧的累计数据保留在总数中，无法追溯到日期或标题类别。</p>
-    <p class="note">移除动态元数据行可能影响 Memory 在消息缺少时间戳时的相对时间理解。</p>
+    <p class="note">分类统计从本版本启用后开始；旧的累计数据保留在总数中，无法追溯到各类别。</p>
+    <p class="note">旧版两项设置会自动补上关闭的助手列表开关，不会改写旧设置文件。启用前请先让所有宿主进程升级到本版本；回滚旧版前请关闭此开关并恢复两项设置格式。</p>
+    <p class="note">助手列表仅在已识别的 system/developer 宿主结构及会话开头符合宿主结构的首条环境 user 内容中替换；完全仿造该结构的用户文本无法仅靠内容可靠区分。</p>
     <p class="note">同一主机待提交计数可见；其他主机通常在约 30 秒提交后可见。持续存储故障可延迟更久，进程崩溃可能丢失尚未提交计数。</p>
   </main>
 </body>

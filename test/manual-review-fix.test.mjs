@@ -4,7 +4,8 @@ import { createRequestHook } from '../src/request.hooks.mjs';
 
 const dateLine = 'Session date: Tuesday, November 3, 2026';
 const prompt = `<tools description="The tools you can use below">\n<tool name="Memory">\n<tool.instructions>You have access to the Memory Tool.\n<session_context>\n${dateLine}\nConversation language: en\n</session_context>\n</tool.instructions>\n</tool>\n</tools>`;
-const cleaned = prompt.replace(`${dateLine}\n`, '');
+const timeGuidance = `<current_time_guidance>\nWhen the task requires the current date or time, use an available time tool or run \`date\` if shell access is available. Use the user's specified timezone; otherwise use the runtime's configured timezone. Do not infer the current date or time from older conversation messages. If the current time cannot be verified, say so.\n</current_time_guidance>`;
+const cleaned = prompt.replace(`${dateLine}\n`, `${timeGuidance}\n`);
 
 function setup() {
   const events = [];
@@ -12,13 +13,13 @@ function setup() {
   return { hook, events };
 }
 
-async function expectMatched(hook, events, body, protocol, expected, removedLines = 1) {
+async function expectMatched(hook, events, body, protocol, expected, removedLines = 1, timeGuidanceBlocks = 1) {
   const before = structuredClone(body);
   const result = await hook(body, { protocol });
   await Promise.resolve();
   assert.deepEqual(result, expected);
   assert.deepEqual(body, before, 'request body must not be mutated in place');
-  assert.deepEqual(events, [{ matched: true, removedLines, dateRemovedLines: removedLines, topicTitleRemovedLines: 0, at: '2026-11-05T12:00:00.000Z' }]);
+  assert.deepEqual(events, [{ matched: true, removedLines, dateRemovedLines: removedLines, topicTitleRemovedLines: 0, availableAgentsMatched: false, availableAgentsReplacedBlocks: 0, timeGuidanceInsertedBlocks: timeGuidanceBlocks, at: '2026-11-05T12:00:00.000Z' }]);
 }
 
 test('public hook filters Chat system date with assistant tool_calls missing content', async () => {
@@ -42,7 +43,7 @@ test('public hook filters Responses easy input messages without type', async () 
     { role: 'system', content: cleaned },
     { role: 'developer', content: cleaned },
     body.input[2],
-  ] }, 2);
+  ] }, 2, 2);
 });
 
 test('public hook filters Gemini system date beside recognized image and file parts', async () => {

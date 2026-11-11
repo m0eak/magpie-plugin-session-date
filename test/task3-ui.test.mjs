@@ -14,8 +14,42 @@ test('stats schema accepts consistent counts and nullable UTC timestamps', () =>
 });
 
 test('stats schema rejects alien, malformed, unsafe and inconsistent data', () => {
-  for (const bad of [null, [], {}, { ...good, schemaVersion: 2 }, { ...good, status: 'unknown' }, { ...good, stats: { ...good.stats, processedRequests: -1 } }, { ...good, stats: { ...good.stats, processedRequests: Number.MAX_SAFE_INTEGER + 1 } }, { ...good, stats: { ...good.stats, matchedRequests: 4 } }, { ...good, stats: { ...good.stats, removedLines: 1 } }, { ...good, stats: { ...good.stats, updatedAt: 'not-a-date' } }, { ...good, stats: { ...good.stats, lastMatchedAt: null } }]) assert.throws(() => validateStats(bad));
+  for (const bad of [null, [], {}, { ...good, schemaVersion: 2 }, { ...good, status: 'unknown' }, { ...good, stats: { ...good.stats, processedRequests: -1 } }, { ...good, stats: { ...good.stats, processedRequests: Number.MAX_SAFE_INTEGER + 1 } }, { ...good, stats: { ...good.stats, matchedRequests: 4 } }, { ...good, stats: { ...good.stats, updatedAt: 'not-a-date' } }, { ...good, stats: { ...good.stats, lastMatchedAt: null } }, { ...good, stats: { ...good.stats, availableAgentsMatchedRequests: 2, availableAgentsReplacedBlocks: 1 } }, { ...good, stats: { ...good.stats, dateMatchedRequests: 1 } }, { ...good, stats: { ...good.stats, topicTitleRemovedLines: 1 } }, { ...good, stats: { ...good.stats, availableAgentsReplacedBlocks: 1 } }]) assert.throws(() => validateStats(bad));
   assert.equal(validateStats({ ...good, status: 'degraded' }).status, 'degraded');
+});
+
+test('stats schema accepts multiple guidance blocks per matched request and pure agent replacement', () => {
+  const base = {
+    ...good,
+    stats: {
+      ...good.stats,
+      processedRequests: 1,
+      matchedRequests: 1,
+      unmatchedRequests: 0,
+      removedLines: 2,
+      dateMatchedRequests: 1,
+      dateRemovedLines: 2,
+      timeGuidanceInsertedBlocks: 2,
+    },
+  };
+  assert.equal(validateStats(base).stats.timeGuidanceInsertedBlocks, 2);
+  const pureAgents = {
+    ...base,
+    stats: {
+      ...base.stats,
+      removedLines: 0,
+      dateMatchedRequests: 0,
+      dateRemovedLines: 0,
+      timeGuidanceInsertedBlocks: 0,
+      availableAgentsMatchedRequests: 1,
+      availableAgentsReplacedBlocks: 1,
+    },
+  };
+  assert.equal(validateStats(pureAgents).stats.availableAgentsReplacedBlocks, 1);
+  assert.throws(() => validateStats({
+    ...pureAgents,
+    stats: { ...pureAgents.stats, availableAgentsReplacedBlocks: 0 },
+  }), /Invalid statistics/);
 });
 
 test('poller marks initial network failure unavailable, keeps stale success, times out without overlap and pauses when hidden', async () => {
@@ -87,7 +121,7 @@ test('service serves fixed assets and read-only authenticated API with proxy CSP
 });
 
 test('settings PATCH merges explicit fields, PUT replaces all fields, and writes require authentication', { skip: typeof Bun === 'undefined' }, async () => {
-  let settings = { sessionDate: true, topicTitle: true };
+  let settings = { sessionDate: true, topicTitle: true, availableAgents: false };
   const configStore = {
     snapshot: () => settings,
     async update(patch) { settings = Object.freeze({ ...settings, ...patch }); return settings; },
@@ -99,12 +133,12 @@ test('settings PATCH merges explicit fields, PUT replaces all fields, and writes
     const headers = { Authorization: `Bearer ${'a'.repeat(64)}`, Origin: 'null', 'Content-Type': 'application/json' };
     const dateChange = await fetch(new URL('/api/settings', root), { method: 'PATCH', headers, body: JSON.stringify({ sessionDate: false }) });
     assert.equal(dateChange.status, 200);
-    assert.deepEqual((await dateChange.json()).settings, { sessionDate: false, topicTitle: true });
+    assert.deepEqual((await dateChange.json()).settings, { sessionDate: false, topicTitle: true, availableAgents: false });
     const titleChange = await fetch(new URL('/api/settings', root), { method: 'PATCH', headers, body: JSON.stringify({ topicTitle: false }) });
-    assert.deepEqual((await titleChange.json()).settings, { sessionDate: false, topicTitle: false });
+    assert.deepEqual((await titleChange.json()).settings, { sessionDate: false, topicTitle: false, availableAgents: false });
     assert.equal((await fetch(new URL('/api/settings', root), { method: 'PATCH', headers, body: JSON.stringify({ unknown: false }) })).status, 400);
-    const replace = await fetch(new URL('/api/settings', root), { method: 'PUT', headers, body: JSON.stringify({ sessionDate: true, topicTitle: true }) });
-    assert.deepEqual((await replace.json()).settings, { sessionDate: true, topicTitle: true });
+    const replace = await fetch(new URL('/api/settings', root), { method: 'PUT', headers, body: JSON.stringify({ sessionDate: true, topicTitle: true, availableAgents: false }) });
+    assert.deepEqual((await replace.json()).settings, { sessionDate: true, topicTitle: true, availableAgents: false });
     const unauthorized = await fetch(new URL('/api/settings', root), { method: 'PATCH', headers: { Origin: 'null', 'Content-Type': 'application/json' }, body: JSON.stringify({ topicTitle: false }) });
     assert.equal(unauthorized.status, 401);
     const preflight = await fetch(new URL('/api/settings', root), { method: 'OPTIONS', headers: { Origin: 'null', 'Access-Control-Request-Method': 'PATCH' } });

@@ -66,7 +66,7 @@ test('does not remove metadata-looking lines from fenced code or unrelated body 
 });
 
 test('filters metadata consistently in the known prompt fields of all four protocols', () => {
-  const clean = 'Stable instructions\nStable tail';
+  const clean = `Stable instructions\n${timeGuidance}\nStable tail`;
   const cases = [
     ['chat', { messages: [{ role: 'system', content: `Stable instructions\n${emptyTitle}\n${currentDate}\nStable tail` }] }, (body) => body.messages[0].content],
     ['responses', { instructions: `Stable instructions\n${emptyTitle}\n${currentDate}\nStable tail` }, (body) => body.instructions],
@@ -97,7 +97,12 @@ const stablePrompt = (title, date) => [
   '</tool>',
   '</tools>',
 ].join('\n');
-const normalizedStablePrompt = stripSessionDates(stablePrompt('placeholder', '2026-11-11')).text;
+const timeGuidance = `<current_time_guidance>
+When the task requires the current date or time, use an available time tool or run \`date\` if shell access is available. Use the user's specified timezone; otherwise use the runtime's configured timezone. Do not infer the current date or time from older conversation messages. If the current time cannot be verified, say so.
+</current_time_guidance>`;
+const normalizedStablePrompt = stripSessionDates(
+  stablePrompt('placeholder', '2026-11-11').replace(/^Current date:.*$/m, timeGuidance),
+).text;
 
 function pairedProtocolBodies(protocol, title, date) {
   const prompt = stablePrompt(title, date);
@@ -269,7 +274,7 @@ test('the public onRequest hook transforms a mixed date and title request and re
   assert.equal(result.messages[1], body.messages[1]);
   assert.equal(result.messages[2], body.messages[2]);
   await new Promise((resolve) => queueMicrotask(resolve));
-  assert.deepEqual(events, [{ matched: true, removedLines: 2, dateRemovedLines: 1, topicTitleRemovedLines: 1, at: '2026-11-11T00:00:00.000Z' }]);
+  assert.deepEqual(events, [{ matched: true, removedLines: 2, dateRemovedLines: 1, topicTitleRemovedLines: 1, availableAgentsMatched: false, availableAgentsReplacedBlocks: 0, timeGuidanceInsertedBlocks: 1, at: '2026-11-11T00:00:00.000Z' }]);
 });
 
 test('filters Responses system and developer text, including typed text blocks only', () => {
@@ -284,8 +289,8 @@ test('filters Responses system and developer text, including typed text blocks o
   };
   const result = filterRequest(body, 'responses');
   assert.equal(result.removedLines, 4);
-  assert.equal(result.body.input[0].content[0].text, '');
-  assert.equal(result.body.input[1].content, '');
+  assert.equal(result.body.input[0].content[0].text, timeGuidance);
+  assert.equal(result.body.input[1].content, timeGuidance);
   assert.equal(result.body.input[2], body.input[2]);
   assert.equal(result.body.input[3], body.input[3]);
   assert.equal(result.body.input[4], body.input[4]);

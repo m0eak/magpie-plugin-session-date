@@ -4,10 +4,11 @@ import { join } from 'node:path';
 import { StatsStore } from '../src/stats-store.mjs';
 import { createRequestHook } from '../src/request.hooks.mjs';
 import { createService } from '../src/service-api.mjs';
+import { CURRENT_TIME_GUIDANCE } from '../src/stable-context.mjs';
 
 const dateLine = 'Session date: Tuesday, November 3, 2026';
 const target = `<tools description="The tools you can use below">\n<tool name="Memory">\n<tool.instructions>You have access to the Memory Tool.\n<session_context>\n${dateLine}\nConversation language: en\n</session_context>\n</tool.instructions>\n</tool>\n</tools>`;
-const clean = target.replace(`${dateLine}\n`, '');
+const clean = target.replace(`${dateLine}\n`, `${CURRENT_TIME_GUIDANCE}\n`);
 const root = mkdtempSync(join(process.cwd(), 'test-data', `integration-${process.pid}-`));
 chmodSync(root, 0o700);
 try {

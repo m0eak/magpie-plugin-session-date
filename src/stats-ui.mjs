@@ -1,4 +1,4 @@
-const COUNT_FIELDS = ['processedRequests', 'matchedRequests', 'removedLines', 'unmatchedRequests', 'dateMatchedRequests', 'dateRemovedLines', 'topicTitleMatchedRequests', 'topicTitleRemovedLines'];
+const COUNT_FIELDS = ['processedRequests', 'matchedRequests', 'removedLines', 'unmatchedRequests', 'dateMatchedRequests', 'dateRemovedLines', 'topicTitleMatchedRequests', 'topicTitleRemovedLines', 'availableAgentsMatchedRequests', 'availableAgentsReplacedBlocks', 'timeGuidanceInsertedBlocks'];
 const TIME_FIELDS = ['startedAt', 'updatedAt', 'lastMatchedAt'];
 const ISO_UTC = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/;
 
@@ -10,13 +10,28 @@ export function validateStats(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value) || value.schemaVersion !== 1 || !['ok', 'degraded'].includes(value.status)) throw new TypeError('Invalid statistics response.');
   const source = value.stats;
   if (!source || typeof source !== 'object' || Array.isArray(source)) throw new TypeError('Invalid statistics response.');
-  const categories = COUNT_FIELDS.slice(4);
-  const hasCategories = categories.some((key) => source[key] !== undefined);
-  for (const key of COUNT_FIELDS.slice(0, 4)) if (!Number.isSafeInteger(source[key]) || source[key] < 0) throw new TypeError('Invalid statistics response.');
-  if (hasCategories && categories.some((key) => !Number.isSafeInteger(source[key]) || source[key] < 0)) throw new TypeError('Invalid statistics response.');
+  for (const key of COUNT_FIELDS) if (source[key] !== undefined && (!Number.isSafeInteger(source[key]) || source[key] < 0)) throw new TypeError('Invalid statistics response.');
+  for (const key of COUNT_FIELDS.slice(0, 4)) if (!Number.isSafeInteger(source[key]) || source[key] < 0) throw new TypeError('Invalid statistics response.')
   const dateHits = source.dateMatchedRequests ?? 0, dateLines = source.dateRemovedLines ?? 0;
   const titleHits = source.topicTitleMatchedRequests ?? 0, titleLines = source.topicTitleRemovedLines ?? 0;
-  if (source.matchedRequests > source.processedRequests || source.unmatchedRequests !== source.processedRequests - source.matchedRequests || source.removedLines < source.matchedRequests || dateHits > source.matchedRequests || titleHits > source.matchedRequests || dateLines + titleLines > source.removedLines || dateHits > dateLines || titleHits > titleLines) throw new TypeError('Invalid statistics response.');
+  const agentHits = source.availableAgentsMatchedRequests ?? 0, agentBlocks = source.availableAgentsReplacedBlocks ?? 0;
+  const dateGroupPresent = source.dateMatchedRequests !== undefined && source.dateRemovedLines !== undefined;
+  const dateGroupAbsent = source.dateMatchedRequests === undefined && source.dateRemovedLines === undefined;
+  const titleGroupPresent = source.topicTitleMatchedRequests !== undefined && source.topicTitleRemovedLines !== undefined;
+  const titleGroupAbsent = source.topicTitleMatchedRequests === undefined && source.topicTitleRemovedLines === undefined;
+  const agentGroupPresent = source.availableAgentsMatchedRequests !== undefined && source.availableAgentsReplacedBlocks !== undefined;
+  const agentGroupAbsent = source.availableAgentsMatchedRequests === undefined && source.availableAgentsReplacedBlocks === undefined;
+  const totalPromptChanges = source.removedLines + agentBlocks;
+  if (!Number.isSafeInteger(totalPromptChanges) ||
+      source.matchedRequests > source.processedRequests ||
+      source.unmatchedRequests !== source.processedRequests - source.matchedRequests ||
+      (!dateGroupPresent && !dateGroupAbsent) || (!titleGroupPresent && !titleGroupAbsent) ||
+      (!agentGroupPresent && !agentGroupAbsent) ||
+      dateHits > source.matchedRequests || titleHits > source.matchedRequests || agentHits > source.matchedRequests ||
+      dateHits > dateLines || titleHits > titleLines ||
+      dateLines > source.removedLines || titleLines > source.removedLines - dateLines ||
+      agentHits > agentBlocks || (source.timeGuidanceInsertedBlocks ?? 0) > dateLines ||
+      source.matchedRequests > totalPromptChanges) throw new TypeError('Invalid statistics response.');
   for (const key of TIME_FIELDS) if (!validTimestamp(source[key])) throw new TypeError('Invalid statistics response.');
   if (source.processedRequests === 0 && (source.startedAt !== null || source.updatedAt !== null || source.lastMatchedAt !== null)) throw new TypeError('Invalid statistics response.');
   if (source.processedRequests > 0 && (source.startedAt === null || source.updatedAt === null)) throw new TypeError('Invalid statistics response.');
@@ -111,14 +126,20 @@ export async function readFilterSettings({ fetcher = fetch, url = '/api/settings
   const response = await fetcher(url, { method: 'GET', headers: { Authorization: `Bearer ${serviceToken}` }, cache: 'no-store' });
   if (!response?.ok) throw new Error('Settings could not be loaded.');
   const value = await response.json();
-  if (!value || typeof value.settings?.sessionDate !== 'boolean' || typeof value.settings?.topicTitle !== 'boolean' || Object.keys(value.settings).length !== 2) throw new TypeError('Invalid settings response.');
-  return Object.freeze({ sessionDate: value.settings.sessionDate, topicTitle: value.settings.topicTitle });
+  const settings = value?.settings;
+  const keys = settings && Object.keys(settings).sort();
+  const legacyKeys = ['sessionDate', 'topicTitle'];
+  const currentKeys = ['availableAgents', 'sessionDate', 'topicTitle'];
+  if (!settings || (JSON.stringify(keys) !== JSON.stringify(legacyKeys) && JSON.stringify(keys) !== JSON.stringify(currentKeys)) ||
+      typeof settings.sessionDate !== 'boolean' || typeof settings.topicTitle !== 'boolean' ||
+      (settings.availableAgents !== undefined && typeof settings.availableAgents !== 'boolean')) throw new TypeError('Invalid settings response.');
+  return Object.freeze({ sessionDate: settings.sessionDate, topicTitle: settings.topicTitle, availableAgents: settings.availableAgents ?? false });
 }
 
 export async function saveFilterSettings(settings, { fetcher = fetch, url = '/api/settings' } = {}) {
   if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw new TypeError('A settings patch is required.');
   const keys = Object.keys(settings);
-  if (keys.length === 0 || keys.some((key) => !['sessionDate', 'topicTitle'].includes(key) || typeof settings[key] !== 'boolean')) throw new TypeError('Settings patch fields must be known booleans.');
+  if (keys.length === 0 || keys.some((key) => !['sessionDate', 'topicTitle', 'availableAgents'].includes(key) || typeof settings[key] !== 'boolean')) throw new TypeError('Settings patch fields must be known booleans.');
   const response = await fetcher(url, {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${serviceToken}`, 'Content-Type': 'application/json' },
@@ -128,7 +149,11 @@ export async function saveFilterSettings(settings, { fetcher = fetch, url = '/ap
   if (!response?.ok) throw new Error('Settings could not be saved.');
   const value = await response.json();
   const actual = value?.settings;
-  if (!actual || typeof actual.sessionDate !== 'boolean' || typeof actual.topicTitle !== 'boolean' ||
-      Object.keys(actual).length !== 2 || keys.some((key) => actual[key] !== settings[key])) throw new TypeError('Invalid settings response.');
-  return Object.freeze({ sessionDate: actual.sessionDate, topicTitle: actual.topicTitle });
+  const actualKeys = actual && Object.keys(actual).sort();
+  if (!actual || (JSON.stringify(actualKeys) !== JSON.stringify(['sessionDate', 'topicTitle']) &&
+      JSON.stringify(actualKeys) !== JSON.stringify(['availableAgents', 'sessionDate', 'topicTitle'])) ||
+      typeof actual.sessionDate !== 'boolean' || typeof actual.topicTitle !== 'boolean' ||
+      (actual.availableAgents !== undefined && typeof actual.availableAgents !== 'boolean') ||
+      keys.some((key) => actual[key] !== settings[key])) throw new TypeError('Invalid settings response.');
+  return Object.freeze({ sessionDate: actual.sessionDate, topicTitle: actual.topicTitle, availableAgents: actual.availableAgents ?? false });
 }

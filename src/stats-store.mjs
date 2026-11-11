@@ -2,7 +2,8 @@ import { createRequire } from 'node:module';
 import { isAbsolute, join } from 'node:path';
 
 const require = createRequire(import.meta.url);
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
+const API_SCHEMA_VERSION = 1;
 const DB_FILE = 'stats.sqlite';
 export const DEFAULT_FLUSH_MS = 30_000;
 const MAX_SAFE = Number.MAX_SAFE_INTEGER;
@@ -18,6 +19,9 @@ const EMPTY = Object.freeze({
   dateRemovedLines: 0,
   topicTitleMatchedRequests: 0,
   topicTitleRemovedLines: 0,
+  availableAgentsMatchedRequests: 0,
+  availableAgentsReplacedBlocks: 0,
+  timeGuidanceInsertedBlocks: 0,
   unmatchedRequests: 0,
   startedAt: null,
   updatedAt: null,
@@ -55,7 +59,7 @@ function validateStoredRow(row) {
     if (value !== null && !validISO(value)) throw Object.assign(new Error('invalid aggregate timestamp'), { code: 'SQLITE_CORRUPT' });
   }
   const [startedAt, updatedAt, lastMatchedAt] = timestamps;
-  const invalidRelationship = matched > processed || removed < matched ||
+  const invalidRelationship = matched > processed ||
     (matched === 0 && (removed !== 0 || lastMatchedAt !== null)) ||
     (processed === 0 ? startedAt !== null || updatedAt !== null || matched !== 0 || removed !== 0 : startedAt === null || updatedAt === null) ||
     (matched > 0 && lastMatchedAt === null) ||
@@ -66,12 +70,28 @@ function validateStoredRow(row) {
   const dateRemoved = storedCount(row.date_removed_lines ?? 0);
   const topicTitleMatched = storedCount(row.topic_title_matched_requests ?? 0);
   const topicTitleRemoved = storedCount(row.topic_title_removed_lines ?? 0);
-  if (dateMatched > matched || topicTitleMatched > matched || dateMatched > dateRemoved || topicTitleMatched > topicTitleRemoved || dateRemoved + topicTitleRemoved > removed) throw Object.assign(new Error('invalid category totals'), { code: 'SQLITE_CORRUPT' });
-  return { processed, matched, removed, dateMatched, dateRemoved, topicTitleMatched, topicTitleRemoved };
+  const availableAgentsMatched = storedCount(row.available_agents_matched_requests ?? 0);
+  const availableAgentsBlocks = storedCount(row.available_agents_replaced_blocks ?? 0);
+  const timeGuidanceBlocks = storedCount(row.time_guidance_inserted_blocks ?? 0);
+  const totalPromptChanges = removed + availableAgentsBlocks;
+  const categoryRowsPresent = row.date_matched_requests != null && row.date_removed_lines != null &&
+    row.topic_title_matched_requests != null && row.topic_title_removed_lines != null;
+  const categoryRowsAbsent = row.date_matched_requests == null && row.date_removed_lines == null &&
+    row.topic_title_matched_requests == null && row.topic_title_removed_lines == null;
+  if (!Number.isSafeInteger(totalPromptChanges) ||
+      (!categoryRowsPresent && !categoryRowsAbsent) ||
+      dateMatched > matched || topicTitleMatched > matched || availableAgentsMatched > matched ||
+      dateMatched > dateRemoved || topicTitleMatched > topicTitleRemoved ||
+      dateRemoved > removed || topicTitleRemoved > removed - dateRemoved ||
+      availableAgentsMatched > availableAgentsBlocks || timeGuidanceBlocks > dateRemoved ||
+      matched > totalPromptChanges) {
+    throw Object.assign(new Error('invalid category totals'), { code: 'SQLITE_CORRUPT' });
+  }
+  return { processed, matched, removed, dateMatched, dateRemoved, topicTitleMatched, topicTitleRemoved, availableAgentsMatched, availableAgentsBlocks, timeGuidanceBlocks };
 }
 
 function emptyPending() {
-  return { processedRequests: 0, matchedRequests: 0, removedLines: 0, dateMatchedRequests: 0, dateRemovedLines: 0, topicTitleMatchedRequests: 0, topicTitleRemovedLines: 0, startedAt: null, updatedAt: null, lastMatchedAt: null };
+  return { processedRequests: 0, matchedRequests: 0, removedLines: 0, dateMatchedRequests: 0, dateRemovedLines: 0, topicTitleMatchedRequests: 0, topicTitleRemovedLines: 0, availableAgentsMatchedRequests: 0, availableAgentsReplacedBlocks: 0, timeGuidanceInsertedBlocks: 0, startedAt: null, updatedAt: null, lastMatchedAt: null };
 }
 
 function errorCode(error) {
@@ -127,8 +147,8 @@ export class StatsStore {
     return Number.isFinite(date.getTime()) ? date.toISOString() : new Date().toISOString();
   }
 
-  record({ matched = false, removedLines = 0, dateRemovedLines = 0, topicTitleRemovedLines = 0, at } = {}) {
-    if (this.closed || typeof matched !== 'boolean' || !Number.isSafeInteger(removedLines) || removedLines < 0 || !Number.isSafeInteger(dateRemovedLines) || dateRemovedLines < 0 || !Number.isSafeInteger(topicTitleRemovedLines) || topicTitleRemovedLines < 0 || dateRemovedLines + topicTitleRemovedLines > removedLines || (matched && removedLines === 0) || (!matched && removedLines !== 0)) return false;
+  record({ matched = false, removedLines = 0, dateRemovedLines = 0, topicTitleRemovedLines = 0, availableAgentsMatched = false, availableAgentsReplacedBlocks = 0, timeGuidanceInsertedBlocks = 0, at } = {}) {
+    if (this.closed || typeof matched !== 'boolean' || !Number.isSafeInteger(removedLines) || removedLines < 0 || !Number.isSafeInteger(dateRemovedLines) || dateRemovedLines < 0 || !Number.isSafeInteger(topicTitleRemovedLines) || topicTitleRemovedLines < 0 || !Number.isSafeInteger(availableAgentsReplacedBlocks) || availableAgentsReplacedBlocks < 0 || !Number.isSafeInteger(timeGuidanceInsertedBlocks) || timeGuidanceInsertedBlocks < 0 || typeof availableAgentsMatched !== 'boolean' || dateRemovedLines + topicTitleRemovedLines > removedLines || timeGuidanceInsertedBlocks > dateRemovedLines || (matched && removedLines === 0 && availableAgentsReplacedBlocks === 0) || (!matched && (removedLines !== 0 || availableAgentsReplacedBlocks !== 0 || dateRemovedLines !== 0 || topicTitleRemovedLines !== 0 || timeGuidanceInsertedBlocks !== 0)) || (availableAgentsMatched && availableAgentsReplacedBlocks === 0)) return false;
     if (at !== undefined && !validISO(at)) return false;
     const timestamp = at ?? this.#nowISO();
     try {
@@ -143,6 +163,9 @@ export class StatsStore {
         next.topicTitleRemovedLines = addCount(next.topicTitleRemovedLines, topicTitleRemovedLines);
         if (dateRemovedLines > 0) next.dateMatchedRequests = addCount(next.dateMatchedRequests, 1);
         if (topicTitleRemovedLines > 0) next.topicTitleMatchedRequests = addCount(next.topicTitleMatchedRequests, 1);
+        if (availableAgentsMatched) next.availableAgentsMatchedRequests = addCount(next.availableAgentsMatchedRequests, 1);
+        next.availableAgentsReplacedBlocks = addCount(next.availableAgentsReplacedBlocks, availableAgentsReplacedBlocks);
+        next.timeGuidanceInsertedBlocks = addCount(next.timeGuidanceInsertedBlocks, timeGuidanceInsertedBlocks);
         next.lastMatchedAt = latest(next.lastMatchedAt, timestamp);
       }
       Object.assign(this.pending, next);
@@ -212,12 +235,13 @@ export class StatsStore {
           const expected = ['id', 'schema_version', 'processed_requests', 'matched_requests', 'removed_lines', 'started_at', 'updated_at', 'last_matched_at'];
           if (expected.some((name) => !columns.includes(name))) throw Object.assign(new Error('unknown database schema'), { code: 'SQLITE_SCHEMA' });
           const existing = this.db.query('SELECT schema_version FROM stats WHERE id=1').get();
-          if (existing && Number(existing.schema_version) !== SCHEMA_VERSION) throw Object.assign(new Error('unknown database schema version'), { code: 'SQLITE_SCHEMA' });
-          for (const [column, sqlType] of [['date_matched_requests', 'INTEGER NOT NULL DEFAULT 0'], ['date_removed_lines', 'INTEGER NOT NULL DEFAULT 0'], ['topic_title_matched_requests', 'INTEGER NOT NULL DEFAULT 0'], ['topic_title_removed_lines', 'INTEGER NOT NULL DEFAULT 0']]) {
+          if (existing && ![1, SCHEMA_VERSION].includes(Number(existing.schema_version))) throw Object.assign(new Error('unknown database schema version'), { code: 'SQLITE_SCHEMA' });
+          for (const [column, sqlType] of [['date_matched_requests', 'INTEGER NOT NULL DEFAULT 0'], ['date_removed_lines', 'INTEGER NOT NULL DEFAULT 0'], ['topic_title_matched_requests', 'INTEGER NOT NULL DEFAULT 0'], ['topic_title_removed_lines', 'INTEGER NOT NULL DEFAULT 0'], ['available_agents_matched_requests', 'INTEGER NOT NULL DEFAULT 0'], ['available_agents_replaced_blocks', 'INTEGER NOT NULL DEFAULT 0'], ['time_guidance_inserted_blocks', 'INTEGER NOT NULL DEFAULT 0']]) {
             if (!columns.includes(column)) this.db.exec(`ALTER TABLE stats ADD COLUMN ${column} ${sqlType}`);
           }
+          this.db.query('UPDATE stats SET schema_version=? WHERE id=1').run(SCHEMA_VERSION);
         }
-        this.db.exec('CREATE TABLE IF NOT EXISTS stats (id INTEGER PRIMARY KEY CHECK (id = 1), schema_version INTEGER NOT NULL, processed_requests INTEGER NOT NULL, matched_requests INTEGER NOT NULL, removed_lines INTEGER NOT NULL, started_at TEXT, updated_at TEXT, last_matched_at TEXT, date_matched_requests INTEGER NOT NULL DEFAULT 0, date_removed_lines INTEGER NOT NULL DEFAULT 0, topic_title_matched_requests INTEGER NOT NULL DEFAULT 0, topic_title_removed_lines INTEGER NOT NULL DEFAULT 0)');
+        this.db.exec('CREATE TABLE IF NOT EXISTS stats (id INTEGER PRIMARY KEY CHECK (id = 1), schema_version INTEGER NOT NULL, processed_requests INTEGER NOT NULL, matched_requests INTEGER NOT NULL, removed_lines INTEGER NOT NULL, started_at TEXT, updated_at TEXT, last_matched_at TEXT, date_matched_requests INTEGER NOT NULL DEFAULT 0, date_removed_lines INTEGER NOT NULL DEFAULT 0, topic_title_matched_requests INTEGER NOT NULL DEFAULT 0, topic_title_removed_lines INTEGER NOT NULL DEFAULT 0, available_agents_matched_requests INTEGER NOT NULL DEFAULT 0, available_agents_replaced_blocks INTEGER NOT NULL DEFAULT 0, time_guidance_inserted_blocks INTEGER NOT NULL DEFAULT 0)');
         this.db.query('INSERT OR IGNORE INTO stats (id,schema_version,processed_requests,matched_requests,removed_lines,started_at,updated_at,last_matched_at) VALUES (1,?,0,0,0,NULL,NULL,NULL)').run(SCHEMA_VERSION);
       });
       initialize.immediate();
@@ -241,9 +265,9 @@ export class StatsStore {
     this.#init();
     if (!this.db || !this.initialized) return { ...EMPTY };
     try {
-      const row = this.db.query('SELECT schema_version,processed_requests,matched_requests,removed_lines,started_at,updated_at,last_matched_at,date_matched_requests,date_removed_lines,topic_title_matched_requests,topic_title_removed_lines FROM stats WHERE id=1').get();
+      const row = this.db.query('SELECT schema_version,processed_requests,matched_requests,removed_lines,started_at,updated_at,last_matched_at,date_matched_requests,date_removed_lines,topic_title_matched_requests,topic_title_removed_lines,available_agents_matched_requests,available_agents_replaced_blocks,time_guidance_inserted_blocks FROM stats WHERE id=1').get();
       if (!row || Number(row.schema_version) !== SCHEMA_VERSION) throw Object.assign(new Error('unknown schema'), { code: 'SQLITE_SCHEMA' });
-      const { processed, matched, removed, dateMatched, dateRemoved, topicTitleMatched, topicTitleRemoved } = validateStoredRow(row);
+      const { processed, matched, removed, dateMatched, dateRemoved, topicTitleMatched, topicTitleRemoved, availableAgentsMatched, availableAgentsBlocks, timeGuidanceBlocks } = validateStoredRow(row);
       this.#secureFiles(join(this.dataDir, DB_FILE), require('node:fs'));
       return {
         processedRequests: processed,
@@ -253,6 +277,9 @@ export class StatsStore {
         dateRemovedLines: dateRemoved,
         topicTitleMatchedRequests: topicTitleMatched,
         topicTitleRemovedLines: topicTitleRemoved,
+        availableAgentsMatchedRequests: availableAgentsMatched,
+        availableAgentsReplacedBlocks: availableAgentsBlocks,
+        timeGuidanceInsertedBlocks: timeGuidanceBlocks,
         unmatchedRequests: processed - matched,
         startedAt: row.started_at,
         updatedAt: row.updated_at,
@@ -274,8 +301,17 @@ export class StatsStore {
     const dateRemovedLines = committed.dateRemovedLines + pending.dateRemovedLines;
     const topicTitleMatchedRequests = committed.topicTitleMatchedRequests + pending.topicTitleMatchedRequests;
     const topicTitleRemovedLines = committed.topicTitleRemovedLines + pending.topicTitleRemovedLines;
-    const hasSafeAggregate = [processedRequests, matchedRequests, removedLines, dateMatchedRequests, dateRemovedLines, topicTitleMatchedRequests, topicTitleRemovedLines].every(Number.isSafeInteger) &&
-      matchedRequests <= processedRequests && removedLines >= matchedRequests;
+    const availableAgentsMatchedRequests = committed.availableAgentsMatchedRequests + pending.availableAgentsMatchedRequests;
+    const availableAgentsReplacedBlocks = committed.availableAgentsReplacedBlocks + pending.availableAgentsReplacedBlocks;
+    const timeGuidanceInsertedBlocks = committed.timeGuidanceInsertedBlocks + pending.timeGuidanceInsertedBlocks;
+    const totalPromptChanges = removedLines + availableAgentsReplacedBlocks;
+    const hasSafeAggregate = [processedRequests, matchedRequests, removedLines, dateMatchedRequests, dateRemovedLines, topicTitleMatchedRequests, topicTitleRemovedLines, availableAgentsMatchedRequests, availableAgentsReplacedBlocks, timeGuidanceInsertedBlocks, totalPromptChanges].every(Number.isSafeInteger) &&
+      matchedRequests <= processedRequests && dateMatchedRequests <= matchedRequests &&
+      topicTitleMatchedRequests <= matchedRequests && availableAgentsMatchedRequests <= matchedRequests &&
+      availableAgentsMatchedRequests <= availableAgentsReplacedBlocks &&
+      dateMatchedRequests <= dateRemovedLines && topicTitleMatchedRequests <= topicTitleRemovedLines &&
+      dateRemovedLines <= removedLines && topicTitleRemovedLines <= removedLines - dateRemovedLines &&
+      timeGuidanceInsertedBlocks <= dateRemovedLines && matchedRequests <= totalPromptChanges;
     const stats = hasSafeAggregate ? {
       processedRequests,
       matchedRequests,
@@ -284,6 +320,9 @@ export class StatsStore {
       dateRemovedLines,
       topicTitleMatchedRequests,
       topicTitleRemovedLines,
+      availableAgentsMatchedRequests,
+      availableAgentsReplacedBlocks,
+      timeGuidanceInsertedBlocks,
       unmatchedRequests: processedRequests - matchedRequests,
       startedAt: earliest(committed.startedAt, pending.startedAt),
       updatedAt: latest(committed.updatedAt, pending.updatedAt),
@@ -298,7 +337,7 @@ export class StatsStore {
       lastMatchedAt: committed.lastMatchedAt,
     };
     return {
-      schemaVersion: SCHEMA_VERSION,
+      schemaVersion: API_SCHEMA_VERSION,
       status: this.failed || !hasSafeAggregate ? 'degraded' : 'ok',
       stats,
       persistence: hasSafeAggregate
@@ -343,7 +382,7 @@ export class StatsStore {
     try {
       this.db.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_WAIT_MS};`);
       const apply = this.db.transaction(() => {
-        const current = this.db.query('SELECT schema_version,processed_requests,matched_requests,removed_lines,started_at,updated_at,last_matched_at,date_matched_requests,date_removed_lines,topic_title_matched_requests,topic_title_removed_lines FROM stats WHERE id=1').get();
+        const current = this.db.query('SELECT schema_version,processed_requests,matched_requests,removed_lines,started_at,updated_at,last_matched_at,date_matched_requests,date_removed_lines,topic_title_matched_requests,topic_title_removed_lines,available_agents_matched_requests,available_agents_replaced_blocks,time_guidance_inserted_blocks FROM stats WHERE id=1').get();
         if (!current || Number(current.schema_version) !== SCHEMA_VERSION) throw Object.assign(new Error('unknown database schema'), { code: 'SQLITE_SCHEMA' });
         const stored = validateStoredRow(current);
         const nextProcessed = stored.processed + delta.processedRequests;
@@ -353,7 +392,10 @@ export class StatsStore {
         const nextDateRemoved = stored.dateRemoved + delta.dateRemovedLines;
         const nextTitleMatched = stored.topicTitleMatched + delta.topicTitleMatchedRequests;
         const nextTitleRemoved = stored.topicTitleRemoved + delta.topicTitleRemovedLines;
-        if (![nextProcessed, nextMatched, nextRemoved, nextDateMatched, nextDateRemoved, nextTitleMatched, nextTitleRemoved].every(Number.isSafeInteger)) {
+        const nextAgentsMatched = stored.availableAgentsMatched + delta.availableAgentsMatchedRequests;
+        const nextAgentsBlocks = stored.availableAgentsBlocks + delta.availableAgentsReplacedBlocks;
+        const nextTimeGuidanceBlocks = stored.timeGuidanceBlocks + delta.timeGuidanceInsertedBlocks;
+        if (![nextProcessed, nextMatched, nextRemoved, nextDateMatched, nextDateRemoved, nextTitleMatched, nextTitleRemoved, nextAgentsMatched, nextAgentsBlocks, nextTimeGuidanceBlocks].every(Number.isSafeInteger)) {
           throw Object.assign(new Error('aggregate range exceeded'), { code: 'SQLITE_FULL' });
         }
         const nextStartedAt = earliest(current.started_at, delta.startedAt);
@@ -371,17 +413,19 @@ export class StatsStore {
           processed_requests = ?, matched_requests = ?, removed_lines = ?,
           started_at = ?, updated_at = ?, last_matched_at = ?,
           date_matched_requests = ?, date_removed_lines = ?,
-          topic_title_matched_requests = ?, topic_title_removed_lines = ?
+          topic_title_matched_requests = ?, topic_title_removed_lines = ?,
+          available_agents_matched_requests = ?, available_agents_replaced_blocks = ?, time_guidance_inserted_blocks = ?
           WHERE id=1 AND schema_version=?`).run(
           nextProcessed, nextMatched, nextRemoved,
           nextStartedAt, nextUpdatedAt, nextLastMatchedAt,
           nextDateMatched, nextDateRemoved, nextTitleMatched, nextTitleRemoved,
+          nextAgentsMatched, nextAgentsBlocks, nextTimeGuidanceBlocks,
           SCHEMA_VERSION,
         );
         if (result.changes !== 1) throw Object.assign(new Error('unknown database schema'), { code: 'SQLITE_SCHEMA' });
       });
       apply.immediate();
-      for (const key of ['processedRequests', 'matchedRequests', 'removedLines', 'dateMatchedRequests', 'dateRemovedLines', 'topicTitleMatchedRequests', 'topicTitleRemovedLines']) this.pending[key] = Math.max(0, this.pending[key] - delta[key]);
+      for (const key of ['processedRequests', 'matchedRequests', 'removedLines', 'dateMatchedRequests', 'dateRemovedLines', 'topicTitleMatchedRequests', 'topicTitleRemovedLines', 'availableAgentsMatchedRequests', 'availableAgentsReplacedBlocks', 'timeGuidanceInsertedBlocks']) this.pending[key] = Math.max(0, this.pending[key] - delta[key]);
       if (this.pending.processedRequests === 0) {
         this.pending.startedAt = null;
         this.pending.updatedAt = null;

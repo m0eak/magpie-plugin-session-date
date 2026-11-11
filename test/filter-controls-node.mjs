@@ -15,6 +15,9 @@ import { readFilterSettings, saveFilterSettings, setServiceToken } from '../src/
 const date = 'Current date: 2026-11-11';
 const titleEmpty = '| Topic Title |  |';
 const titleReal = '| Topic Title | A real topic |';
+const timeGuidance = `<current_time_guidance>
+When the task requires the current date or time, use an available time tool or run \`date\` if shell access is available. Use the user's specified timezone; otherwise use the runtime's configured timezone. Do not infer the current date or time from older conversation messages. If the current time cannot be verified, say so.
+</current_time_guidance>`;
 const protocols = [
   ['chat', (text) => ({ messages: [{ role: 'system', content: text }] }), (body) => body.messages[0].content],
   ['responses', (text) => ({ instructions: text }), (body) => body.instructions],
@@ -28,9 +31,24 @@ test('all four setting combinations preserve stable prompts across title and dat
       const options = { sessionDate, topicTitle };
       const first = getText(filterRequest(makeBody(`${date}\n${titleEmpty}\nstatic`), protocol, options).body);
       const second = getText(filterRequest(makeBody(`Current date: 2026-11-12\n${titleReal}\nstatic`), protocol, options).body);
-      assert.equal(first, `${sessionDate ? '' : `${date}\n`}${topicTitle ? '' : `${titleEmpty}\n`}static`);
-      assert.equal(second, `${sessionDate ? '' : 'Current date: 2026-11-12\n'}${topicTitle ? '' : `${titleReal}\n`}static`);
+      assert.equal(first, `${sessionDate ? `${timeGuidance}\n` : `${date}\n`}${topicTitle ? '' : `${titleEmpty}\n`}static`);
+      assert.equal(second, `${sessionDate ? `${timeGuidance}\n` : 'Current date: 2026-11-12\n'}${topicTitle ? '' : `${titleReal}\n`}static`);
       if (sessionDate && topicTitle) assert.equal(first, second);
+    }
+  }
+});
+
+test('all eight independent setting combinations work across all four protocols', () => {
+  const liveAgents = '<agent_management_context><instruction>Instructions</instruction><current_agent id="self">Self</current_agent><available_models>Models</available_models><available_agents><agent id="a">Alpha</agent></available_agents><available_plugins>Plugins</available_plugins></agent_management_context>';
+  for (const [protocol, makeBody, getText] of protocols) {
+    for (const sessionDate of [false, true]) for (const topicTitle of [false, true]) for (const availableAgents of [false, true]) {
+      const source = `${liveAgents}\n${titleReal}\n${date}`;
+      const result = filterRequest(makeBody(source), protocol, { sessionDate, topicTitle, availableAgents });
+      const output = getText(result.body);
+      assert.equal(output.includes('Alpha</agent>'), !availableAgents, `${protocol} agents=${availableAgents}`);
+      assert.equal(output.includes(titleReal), !topicTitle, `${protocol} title=${topicTitle}`);
+      assert.equal(output.includes(date), !sessionDate, `${protocol} date=${sessionDate}`);
+      assert.equal(result.availableAgentsReplacedBlocks, availableAgents ? 1 : 0);
     }
   }
 });
@@ -41,17 +59,17 @@ test('configuration is strictly boolean, atomically persisted, and survives a ne
   try {
     const first = new FilterConfigStore({ dataDir: dir, schedule: (fn) => (timers.push(fn), null), cancel() {} });
     const secondHost = new FilterConfigStore({ dataDir: dir, schedule: () => null, cancel() {} });
-    assert.deepEqual(first.snapshot(), { sessionDate: true, topicTitle: true });
+    assert.deepEqual(first.snapshot(), { sessionDate: true, topicTitle: true, availableAgents: false });
     await assert.rejects(first.update({ sessionDate: 0 }), /known boolean fields/);
-    assert.deepEqual(await first.update({ sessionDate: false }), { sessionDate: false, topicTitle: true });
-    assert.deepEqual(await secondHost.update({ topicTitle: false }), { sessionDate: false, topicTitle: false }, 'a stale page changes only its explicit field');
+    assert.deepEqual(await first.update({ sessionDate: false }), { sessionDate: false, topicTitle: true, availableAgents: false });
+    assert.deepEqual(await secondHost.update({ topicTitle: false }), { sessionDate: false, topicTitle: false, availableAgents: false }, 'a stale page changes only its explicit field');
     const child = spawnSync(process.execPath, [join(process.cwd(), 'test/fixtures/filter-config-writer.mjs'), dir, JSON.stringify({ sessionDate: true })], { encoding: 'utf8' });
     assert.equal(child.status, 0, child.stderr);
-    assert.deepEqual(secondHost.snapshot(), { sessionDate: false, topicTitle: false }, 'other process changes are observed on refresh, not mid-request');
+    assert.deepEqual(secondHost.snapshot(), { sessionDate: false, topicTitle: false, availableAgents: false }, 'other process changes are observed on refresh, not mid-request');
     assert.equal(secondHost.refresh(), true);
-    assert.deepEqual(secondHost.snapshot(), { sessionDate: true, topicTitle: false });
+    assert.deepEqual(secondHost.snapshot(), { sessionDate: true, topicTitle: false, availableAgents: false });
     const restarted = new FilterConfigStore({ dataDir: dir, schedule: () => null, cancel() {} });
-    assert.deepEqual(restarted.snapshot(), { sessionDate: true, topicTitle: false });
+    assert.deepEqual(restarted.snapshot(), { sessionDate: true, topicTitle: false, availableAgents: false });
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -60,7 +78,7 @@ test('first save creates a missing data directory before locking', async () => {
   const dir = join(root, 'not-created-yet');
   try {
     const store = new FilterConfigStore({ dataDir: dir, schedule: () => null, cancel() {} });
-    assert.deepEqual(await store.update({ sessionDate: false }), { sessionDate: false, topicTitle: true });
+    assert.deepEqual(await store.update({ sessionDate: false }), { sessionDate: false, topicTitle: true, availableAgents: false });
     store.close();
     assert.ok(existsSync(join(dir, 'filter-config.json')));
   } finally { rmSync(root, { recursive: true, force: true }); }
@@ -80,7 +98,7 @@ test('a live lock is retained, timed out asynchronously, and does not block host
     clearInterval(heartbeat);
     assert.ok(heartbeats > 2, 'the event loop continued to run while waiting');
     assert.ok(existsSync(join(lockPath, 'owner.json')), 'a live owner lock must not be removed');
-    assert.deepEqual(store.snapshot(), { sessionDate: false, topicTitle: true }, 'failed save leaves in-memory settings untouched');
+    assert.deepEqual(store.snapshot(), { sessionDate: false, topicTitle: true, availableAgents: false }, 'failed save leaves in-memory settings untouched');
   } finally {
     rmSync(lockPath, { recursive: true, force: true });
     store.close();
@@ -96,7 +114,7 @@ test('a lock owned by an exited process is reclaimed and the save completes', as
     const lockPath = `${store.path}.lock`;
     const child = spawnSync(process.execPath, [join(process.cwd(), 'test/fixtures/filter-config-abandoned-lock.mjs'), lockPath], { encoding: 'utf8' });
     assert.equal(child.status, 0, child.stderr);
-    assert.deepEqual(await store.update({ topicTitle: false }), { sessionDate: false, topicTitle: false });
+    assert.deepEqual(await store.update({ topicTitle: false }), { sessionDate: false, topicTitle: false, availableAgents: false });
   } finally {
     store.close();
     rmSync(dir, { recursive: true, force: true });
@@ -150,7 +168,7 @@ test('recovery guard serializes stale reclaimers and preserves a replacement liv
     const results = await Promise.allSettled([waitingA, waitingB]);
     assert.ok(results.every((result) => result.status === 'rejected' && /Timed out waiting/.test(result.reason.message)));
     assert.equal(JSON.parse(readFileSync(join(lockPath, 'owner.json'), 'utf8')).token, 'external-live-owner-for-review');
-    assert.deepEqual(first.snapshot(), { sessionDate: false, topicTitle: true }, 'neither reaper entered its update while writer C owned the lock');
+    assert.deepEqual(first.snapshot(), { sessionDate: false, topicTitle: true, availableAgents: false }, 'neither reaper entered its update while writer C owned the lock');
   } finally {
     resumeReaperResolve();
     fs.rmSync = originalRmSync;
@@ -207,7 +225,7 @@ test('simultaneous hosts changing separate settings merge both updates', async (
       return existsSync(errorPath) ? fs.readFileSync(errorPath, 'utf8') : '';
     }).join('\n'));
     const persisted = new FilterConfigStore({ dataDir: dir, schedule: () => null, cancel() {} });
-    assert.deepEqual(persisted.snapshot(), { sessionDate: false, topicTitle: false });
+    assert.deepEqual(persisted.snapshot(), { sessionDate: false, topicTitle: false, availableAgents: false });
     persisted.close();
   } finally {
     writeFileSync(gatePath, 'go');
@@ -227,7 +245,7 @@ test('request hook reads one configuration snapshot and records actual category 
   const body = { messages: [{ role: 'system', content: `${date}\n${titleReal}` }] };
   const result = await hook(body, { protocol: 'chat' });
   assert.equal(reads, 1);
-  assert.equal(result.messages[0].content, titleReal);
+  assert.equal(result.messages[0].content, `${timeGuidance}\n${titleReal}`);
   await new Promise((resolve) => queueMicrotask(resolve));
   assert.equal(events.length, 1);
   assert.equal(events[0].dateRemovedLines, 1);
@@ -241,7 +259,7 @@ test('date switch controls both Current date metadata and the supported Memory S
   assert.equal(enabled.removedLines, 2);
   assert.equal(enabled.dateRemovedLines, 2);
   assert.doesNotMatch(enabled.body.messages[0].content, /Current date:|Session date:/);
-  const disabled = filterRequest(body, 'chat', { sessionDate: false, topicTitle: false });
+  const disabled = filterRequest(body, 'chat', { sessionDate: false, topicTitle: false, availableAgents: false });
   assert.equal(disabled.removedLines, 0);
   assert.equal(disabled.body, body);
 });
@@ -253,7 +271,7 @@ test('settings page client refuses to treat failed saves as applied settings', a
     captured = init;
     return { ok: false, status: 503, json: async () => ({ error: 'failed' }) };
   };
-  await assert.rejects(saveFilterSettings({ sessionDate: false, topicTitle: true }, { fetcher }), /could not be saved/);
+  await assert.rejects(saveFilterSettings({ sessionDate: false, topicTitle: true, availableAgents: false }, { fetcher }), /could not be saved/);
   assert.equal(captured.method, 'PATCH');
   assert.equal(captured.headers.Authorization, `Bearer ${'a'.repeat(64)}`);
   await assert.rejects(readFilterSettings({ fetcher }), /could not be loaded/);
@@ -263,11 +281,32 @@ test('settings page client refuses to treat failed saves as applied settings', a
 test('settings PATCH accepts authoritative merged state and validates only patched fields', async () => {
   setServiceToken('a'.repeat(64));
   let request;
-  const response = { ok: true, json: async () => ({ settings: { sessionDate: false, topicTitle: false } }) };
+  const response = { ok: true, json: async () => ({ settings: { sessionDate: false, topicTitle: false, availableAgents: false } }) };
   const fetcher = async (_url, init) => { request = init; return response; };
-  assert.deepEqual(await saveFilterSettings({ sessionDate: false }, { fetcher }), { sessionDate: false, topicTitle: false });
+  assert.deepEqual(await saveFilterSettings({ sessionDate: false }, { fetcher }), { sessionDate: false, topicTitle: false, availableAgents: false });
   assert.equal(request.method, 'PATCH');
   assert.deepEqual(JSON.parse(request.body), { sessionDate: false });
   const mismatch = async () => ({ ok: true, json: async () => ({ settings: { sessionDate: true, topicTitle: false } }) });
   await assert.rejects(saveFilterSettings({ sessionDate: false }, { fetcher: mismatch }), /Invalid settings response/);
+});
+
+test('settings reader accepts exact legacy/current key sets and rejects unknown or partial keys', async () => {
+  setServiceToken('a'.repeat(64));
+  const reply = (settings) => async () => ({ ok: true, json: async () => ({ settings }) });
+  assert.deepEqual(
+    await readFilterSettings({ fetcher: reply({ sessionDate: true, topicTitle: false }) }),
+    { sessionDate: true, topicTitle: false, availableAgents: false },
+  );
+  assert.deepEqual(
+    await readFilterSettings({ fetcher: reply({ sessionDate: true, topicTitle: false, availableAgents: true }) }),
+    { sessionDate: true, topicTitle: false, availableAgents: true },
+  );
+  for (const invalid of [
+    { sessionDate: true, topicTitle: false, unexpected: true },
+    { sessionDate: true, topicTitle: false, availableAgents: true, unexpected: false },
+    { sessionDate: true },
+    { sessionDate: true, topicTitle: false, availableAgents: 'yes' },
+  ]) {
+    await assert.rejects(readFilterSettings({ fetcher: reply(invalid) }), /Invalid settings response/);
+  }
 });

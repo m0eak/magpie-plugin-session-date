@@ -4,7 +4,8 @@ import { filterRequest } from '../src/protocols.mjs';
 
 const dateLine = 'Session date: Tuesday, November 3, 2026';
 const target = `<tools description="The tools you can use below">\n<tool name="Memory">\n<tool.instructions>You have access to the Memory Tool.\n<session_context>\n${dateLine}\nConversation language: en\n</session_context>\n</tool.instructions>\n</tool>\n</tools>`;
-const clean = target.replace(`${dateLine}\n`, '');
+const timeGuidance = `<current_time_guidance>\nWhen the task requires the current date or time, use an available time tool or run \`date\` if shell access is available. Use the user's specified timezone; otherwise use the runtime's configured timezone. Do not infer the current date or time from older conversation messages. If the current time cannot be verified, say so.\n</current_time_guidance>`;
+const clean = target.replace(`${dateLine}\n`, `${timeGuidance}\n`);
 const textBlock = (text) => ({ type: 'text', text });
 const inputTextBlock = (text) => ({ type: 'input_text', text });
 const geminiTextPart = (text, extras = {}) => ({ text, ...extras });

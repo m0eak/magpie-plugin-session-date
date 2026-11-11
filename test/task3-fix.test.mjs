@@ -22,7 +22,7 @@ async function waitUntil(predicate, label) {
 
 function makeDocument() {
   const elements = new Map();
-  for (const id of ['status','stale','total','processed','matched','unmatched','started','lastMatched','updated','refresh','dateLines','dateHits','titleLines','titleHits','sessionDateEnabled','topicTitleEnabled','settingsStatus']) {
+  for (const id of ['status','stale','total','processed','matched','unmatched','started','lastMatched','updated','refresh','dateLines','dateHits','titleLines','titleHits','agentHits','agentBlocks','timeBlocks','sessionDateEnabled','topicTitleEnabled','availableAgentsEnabled','settingsStatus']) {
     const listeners = new Map();
     elements.set(id, { id, textContent: ['total','processed','matched','unmatched'].includes(id) ? '—' : (['started','lastMatched','updated'].includes(id) ? '暂无' : ''), dataset: {}, style: { colorScheme: '', setProperty() {} }, attributes: {}, disabled: false, title: '',
       addEventListener(type, fn) { listeners.set(type, fn); }, setAttribute(key, value) { this.attributes[key] = value; }, removeAttribute(key) { delete this.attributes[key]; },
@@ -288,7 +288,7 @@ test('root rejects non-read methods before rendering bootstrap; assets and root 
 });
 
 test('actual settings UI reconciles a lost save response and renders authoritative checkbox state', { skip: typeof Bun === 'undefined' }, async () => {
-  let settings = { sessionDate: true, topicTitle: true };
+  let settings = { sessionDate: true, topicTitle: true, availableAgents: false };
   const configStore = {
     snapshot: () => settings,
     async update(patch) { settings = Object.freeze({ ...settings, ...patch }); return settings; },
@@ -318,29 +318,37 @@ test('actual settings UI reconciles a lost save response and renders authoritati
     await waitUntil(() => ui.elements.get('settingsStatus').dataset.state === 'ok', 'settings initial load');
     const dateToggle = ui.elements.get('sessionDateEnabled');
     const titleToggle = ui.elements.get('topicTitleEnabled');
+    const agentsToggle = ui.elements.get('availableAgentsEnabled');
     assert.equal(dateToggle.checked, true);
     assert.equal(titleToggle.checked, true);
 
     dateToggle.checked = false;
     dateToggle.fire('change');
     await waitUntil(() => ui.elements.get('settingsStatus').textContent.includes('确认设置'), 'reconciliation after a committed save response was lost');
-    assert.deepEqual(settings, { sessionDate: false, topicTitle: true });
+    assert.deepEqual(settings, { sessionDate: false, topicTitle: true, availableAgents: false });
     assert.equal(dateToggle.checked, false);
     assert.equal(titleToggle.checked, true);
 
-    settings = { sessionDate: true, topicTitle: true };
+    settings = { sessionDate: true, topicTitle: true, availableAgents: false };
     titleToggle.checked = false;
     titleToggle.fire('change');
     await waitUntil(() => ui.elements.get('settingsStatus').textContent.includes('已保存'), 'successful save rendering');
-    assert.deepEqual(settings, { sessionDate: true, topicTitle: false });
+    assert.deepEqual(settings, { sessionDate: true, topicTitle: false, availableAgents: false });
     assert.equal(dateToggle.checked, true);
     assert.equal(titleToggle.checked, false);
+    assert.equal(agentsToggle.checked, false);
+
+    agentsToggle.checked = true;
+    agentsToggle.fire('change');
+    await waitUntil(() => settings.availableAgents === true, 'agent list setting committed');
+    assert.deepEqual(settings, { sessionDate: true, topicTitle: false, availableAgents: true });
+    assert.equal(agentsToggle.checked, true);
 
     titleToggle.checked = true;
     failNextPatch = true;
     titleToggle.fire('change');
     await waitUntil(() => ui.elements.get('settingsStatus').textContent.includes('保存未生效'), 'failed save reconciliation');
-    assert.deepEqual(settings, { sessionDate: true, topicTitle: false });
+    assert.deepEqual(settings, { sessionDate: true, topicTitle: false, availableAgents: true });
     assert.equal(dateToggle.checked, true);
     assert.equal(titleToggle.checked, false);
   } finally {
@@ -360,12 +368,13 @@ test('actual settings UI retries an initial settings read from the existing refr
         if (!String(url).includes('/api/settings')) return undefined;
         reads++;
         if (reads === 1) throw new Error('synthetic first read failure');
-        return { ok: true, json: async () => ({ settings: { sessionDate: false, topicTitle: true } }) };
+        return { ok: true, json: async () => ({ settings: { sessionDate: false, topicTitle: true, availableAgents: false } }) };
       },
     });
     await waitUntil(() => ui.elements.get('settingsStatus').dataset.state === 'unavailable', 'initial settings read failure');
     assert.equal(ui.elements.get('sessionDateEnabled').disabled, true);
     assert.equal(ui.elements.get('topicTitleEnabled').disabled, true);
+    assert.equal(ui.elements.get('availableAgentsEnabled').disabled, true);
     ui.elements.get('refresh').fire('click');
     await waitUntil(() => reads === 2 && !ui.elements.get('sessionDateEnabled').disabled, 'settings read recovery from refresh');
     assert.equal(ui.elements.get('sessionDateEnabled').checked, false);
@@ -386,7 +395,7 @@ test('actual settings UI rereads an unconfirmed save from the refresh button', {
       if (init?.method === 'PATCH') throw new Error('synthetic lost save response');
       reads++;
       if (failReconcile && reads === 2) throw new Error('synthetic reconciliation read failure');
-      const settings = reads < 3 ? { sessionDate: true, topicTitle: false } : { sessionDate: false, topicTitle: true };
+      const settings = reads < 3 ? { sessionDate: true, topicTitle: false } : { sessionDate: false, topicTitle: true, availableAgents: false };
       return { ok: true, json: async () => ({ settings }) };
     },
   });
@@ -420,10 +429,10 @@ test('actual settings UI queues refresh during save and applies the later author
       if (!String(url).includes('/api/settings')) return undefined;
       if (init?.method === 'PATCH') {
         patchStartedResolve();
-        return new Promise((resolve) => { releaseSave = () => resolve({ ok: true, json: async () => ({ settings: { sessionDate: true, topicTitle: true } }) }); });
+        return new Promise((resolve) => { releaseSave = () => resolve({ ok: true, json: async () => ({ settings: { sessionDate: true, topicTitle: true, availableAgents: false } }) }); });
       }
       reads++;
-      const settings = reads === 1 ? { sessionDate: true, topicTitle: false } : { sessionDate: false, topicTitle: true };
+      const settings = reads === 1 ? { sessionDate: true, topicTitle: false } : { sessionDate: false, topicTitle: true, availableAgents: false };
       return { ok: true, json: async () => ({ settings }) };
     },
   });

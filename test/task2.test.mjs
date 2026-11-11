@@ -11,14 +11,17 @@ import { createService } from '../src/service-api.mjs';
 import { initializePluginServer, getPluginServerStatus } from '../src/plugin-server-status.mjs';
 import { validateStats } from '../src/stats-ui.mjs';
 import { FilterConfigStore } from '../src/filter-config.mjs';
+import { configureFilterConfig, resetFilterConfigForTests } from '../src/filter-config.mjs';
+import { AVAILABLE_AGENTS_GUIDANCE } from '../src/stable-context.mjs';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const testDataRoot = join(root, 'test-data', `task2-${process.pid}`);
 const dateLine = 'Session date: Tuesday, November 3, 2026';
 const target = `<tools description="The tools you can use below">\n<tool name="Memory">\n<tool.instructions>You have access to the Memory Tool.\n<session_context>\n${dateLine}\nConversation language: en\n</session_context>\n</tool.instructions>\n</tool>\n</tools>`;
-const clean = target.replace(`${dateLine}\n`, '');
+const timeGuidance = `<current_time_guidance>\nWhen the task requires the current date or time, use an available time tool or run \`date\` if shell access is available. Use the user's specified timezone; otherwise use the runtime's configured timezone. Do not infer the current date or time from older conversation messages. If the current time cannot be verified, say so.\n</current_time_guidance>`;
+const clean = target.replace(`${dateLine}\n`, `${timeGuidance}\n`);
 
-function legacyStats(stats) { const { dateMatchedRequests, dateRemovedLines, topicTitleMatchedRequests, topicTitleRemovedLines, ...legacy } = stats; return legacy; }
+function legacyStats(stats) { const { dateMatchedRequests, dateRemovedLines, topicTitleMatchedRequests, topicTitleRemovedLines, availableAgentsMatchedRequests, availableAgentsReplacedBlocks, timeGuidanceInsertedBlocks, ...legacy } = stats; return legacy; }
 
 async function freshDir(name) {
   const dir = join(testDataRoot, name);
@@ -78,6 +81,30 @@ test('onRequest counts each supported protocol request once', async () => {
     startedAt: '2026-11-04T03:20:00.000Z', updatedAt: '2026-11-04T03:20:00.000Z', lastMatchedAt: null,
   });
   await store.close();
+});
+
+test('pure available-agent replacement is returned by the hook and counted by blocks', async () => {
+  const dir = await freshDir('pure-agent-replacement');
+  const settingsDir = await freshDir('pure-agent-settings');
+  const settings = configureFilterConfig({ dataDir: settingsDir });
+  try {
+    await settings.replace({ sessionDate: false, topicTitle: false, availableAgents: true });
+    const store = new StatsStore({ dataDir: dir, autoFlush: false });
+    const hook = createRequestHook({ store, now: () => new Date('2026-11-04T03:20:00.000Z') });
+    const source = `<agent_management_context><instruction>Instructions</instruction><current_agent id="a">Agent</current_agent><available_models>Models</available_models><available_agents><agent id="a">First</agent><agent id="b">Second</agent></available_agents><available_plugins>Plugins</available_plugins></agent_management_context>`;
+    const body = { messages: [{ role: 'system', content: source }] };
+    const transformed = await hook(body, { protocol: 'chat' });
+    assert.ok(transformed.messages[0].content.includes(AVAILABLE_AGENTS_GUIDANCE));
+    assert.equal((await store.snapshot()).stats.matchedRequests, 1);
+    assert.equal((await store.snapshot()).stats.removedLines, 0);
+    assert.equal((await store.snapshot()).stats.availableAgentsMatchedRequests, 1);
+    assert.equal((await store.snapshot()).stats.availableAgentsReplacedBlocks, 1);
+    await store.close();
+  } finally {
+    resetFilterConfigForTests();
+    await rm(dir, { recursive: true, force: true });
+    await rm(settingsDir, { recursive: true, force: true });
+  }
 });
 
 async function assertUnmeasurable(protocol, body, label) {
@@ -320,6 +347,26 @@ test('snapshot includes same-host pending data once and concurrent record during
   await store.close();
 });
 
+test('multiple guidance blocks on one request persist and reopen without degrading statistics', async () => {
+  const dir = await freshDir('multiple-guidance-blocks');
+  const store = new StatsStore({ dataDir: dir, autoFlush: false });
+  assert.equal(store.record({
+    matched: true,
+    removedLines: 2,
+    dateRemovedLines: 2,
+    timeGuidanceInsertedBlocks: 2,
+    at: '2026-11-04T04:00:00.000Z',
+  }), true);
+  assert.equal(store.snapshot().status, 'ok');
+  assert.equal(store.snapshot().stats.timeGuidanceInsertedBlocks, 2);
+  assert.equal((await store.flush()).status, 'ok');
+  await store.close();
+  const reopened = new StatsStore({ dataDir: dir, autoFlush: false });
+  assert.equal(reopened.snapshot().status, 'ok');
+  assert.equal(reopened.snapshot().stats.timeGuidanceInsertedBlocks, 2);
+  await reopened.close();
+});
+
 test('flush followed by snapshot does not double count pending data', async () => {
   const dir = await freshDir('flush-snapshot');
   const store = new StatsStore({ dataDir: dir, autoFlush: false });
@@ -539,7 +586,7 @@ test('HTTP service is read-only, allows only null/same origin and hides storage 
     assert.equal(sameOrigin.status, 200);
     assert.equal(sameOrigin.headers.get('access-control-allow-origin'), `http://127.0.0.1:${address.port}`);
     const json = await stats.json();
-    assert.deepEqual(Object.keys(json.stats).sort(), ['lastMatchedAt', 'matchedRequests', 'processedRequests', 'removedLines', 'startedAt', 'unmatchedRequests', 'updatedAt', 'dateMatchedRequests', 'dateRemovedLines', 'topicTitleMatchedRequests', 'topicTitleRemovedLines'].sort());
+    assert.deepEqual(Object.keys(json.stats).sort(), ['lastMatchedAt', 'matchedRequests', 'processedRequests', 'removedLines', 'startedAt', 'unmatchedRequests', 'updatedAt', 'dateMatchedRequests', 'dateRemovedLines', 'topicTitleMatchedRequests', 'topicTitleRemovedLines', 'availableAgentsMatchedRequests', 'availableAgentsReplacedBlocks', 'timeGuidanceInsertedBlocks'].sort());
     const options = await fetch(new URL('/api/stats', address), { method: 'OPTIONS', headers: { Origin: 'null', 'Access-Control-Request-Method': 'GET' } });
     assert.equal(options.status, 204);
     assert.equal(options.headers.get('access-control-allow-methods'), 'GET, OPTIONS');
@@ -880,7 +927,16 @@ test('legacy aggregate migration preserves totals and initializes category count
   const stats = store.snapshot().stats;
   assert.deepEqual([stats.processedRequests, stats.matchedRequests, stats.removedLines], [12, 4, 9]);
   assert.deepEqual([stats.dateMatchedRequests, stats.dateRemovedLines, stats.topicTitleMatchedRequests, stats.topicTitleRemovedLines], [0, 0, 0, 0]);
+  assert.deepEqual([stats.availableAgentsMatchedRequests, stats.availableAgentsReplacedBlocks, stats.timeGuidanceInsertedBlocks], [0, 0, 0]);
+  assert.deepEqual([stats.startedAt, stats.updatedAt, stats.lastMatchedAt], ['2026-11-01T00:00:00.000Z', '2026-11-11T00:00:00.000Z', '2026-11-10T00:00:00.000Z']);
+  assert.equal(store.snapshot().status, 'ok');
+  assert.equal((await store.flush()).status, 'ok');
   await store.close();
+  const reopened = new StatsStore({ dataDir: dir, autoFlush: false });
+  assert.equal(reopened.snapshot().status, 'ok');
+  assert.deepEqual([reopened.snapshot().stats.processedRequests, reopened.snapshot().stats.matchedRequests, reopened.snapshot().stats.removedLines], [12, 4, 9]);
+  assert.deepEqual([reopened.snapshot().stats.availableAgentsReplacedBlocks, reopened.snapshot().stats.timeGuidanceInsertedBlocks], [0, 0]);
+  await reopened.close();
 });
 
 test('settings API authenticates reads and writes, validates booleans, and persists settings', { skip: typeof Bun === 'undefined' }, async () => {
@@ -891,16 +947,16 @@ test('settings API authenticates reads and writes, validates booleans, and persi
   try {
     const url = new URL('/api/settings', service.server.url);
     assert.equal((await fetch(url)).status, 401);
-    assert.equal((await fetch(url, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionDate: false, topicTitle: false }) })).status, 401);
+    assert.equal((await fetch(url, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionDate: false, topicTitle: false, availableAgents: false }) })).status, 401);
     const invalid = await fetch(url, { method: 'PUT', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ sessionDate: 0, topicTitle: false }) });
     assert.equal(invalid.status, 400);
-    const saved = await fetch(url, { method: 'PUT', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ sessionDate: false, topicTitle: true }) });
+    const saved = await fetch(url, { method: 'PUT', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ sessionDate: false, topicTitle: true, availableAgents: false }) });
     assert.equal(saved.status, 200);
-    assert.deepEqual((await saved.json()).settings, { sessionDate: false, topicTitle: true });
+    assert.deepEqual((await saved.json()).settings, { sessionDate: false, topicTitle: true, availableAgents: false });
     const read = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
-    assert.deepEqual((await read.json()).settings, { sessionDate: false, topicTitle: true });
+    assert.deepEqual((await read.json()).settings, { sessionDate: false, topicTitle: true, availableAgents: false });
     const reloaded = new FilterConfigStore({ dataDir: dir });
-    assert.deepEqual(reloaded.snapshot(), { sessionDate: false, topicTitle: true });
+    assert.deepEqual(reloaded.snapshot(), { sessionDate: false, topicTitle: true, availableAgents: false });
     reloaded.close();
   } finally { await service.stop(); config.close(); }
 });

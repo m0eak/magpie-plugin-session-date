@@ -2,11 +2,11 @@
 
 > **本插件尚未发布或部署。** 2026 年 11 月 8 日的宿主验收记录见 [`docs/acceptance.md`](docs/acceptance.md)，该记录适用于当时注明的代码快照；本文所述独立开关、分类统计和并发设置同步属于后续变更，已通过文档所列本地测试，但尚未在宿主中验收。
 
-此独立插件在 magpie 的公开异步请求 hook 中，对已识别的 system/developer 提示词执行确定性变换：移除完整单行的 Topic Title 表格行和 `Current date: YYYY-MM-DD` 行（含已知括号时区后缀），并在 LobeHub Memory / Credentials 的结构 wrapper 内继续移除完整英文 `Session date: Weekday, Month D, YYYY` 行。当前规则没有验证任意多行标题或未知注入模板，不对这些形态作保证。它不扫描 user/assistant/tool 历史、未知字段、图片或非文本块，不做协议转换；不保存请求正文、Key、模型、会话、provider、agent 或逐请求明细。合法未知扩展或部分多模态历史不会阻断对已识别 system/developer 文本的安全过滤；未知且无命中的无关payload不计量。合法Gemini已知媒体/code part可能增加unmatched统计口径，相关验收边界见 [`docs/acceptance.md`](docs/acceptance.md)。完全伪造同一 XML wrapper 的普通正文无法可靠地从真实工具模板语义区分，不承诺绝无误匹配。
+此独立插件在 magpie 的公开异步请求 hook 中，对已识别的 system/developer 提示词执行确定性变换：移除完整单行的 Topic Title 表格行和 `Current date: YYYY-MM-DD` 行（含已知括号时区后缀），并在 LobeHub Memory / Credentials 的结构 wrapper 内继续移除完整英文 `Session date: Weekday, Month D, YYYY` 行；移除日期后在同一文本区域加入固定的时间查询提示，不回填当前日期。可选的助手列表开关只替换已识别完整名单块；四种协议中还会检查会话开头的首条合格环境 user 消息。该消息可由已知的 `<user_memory>`、`<agent_documents_index>` 与 `<agent_management_context>` 顶层块组成；只在其中完整顶层的 `agent_management_context` 结构符合宿主模板时替换名单，并保留周边环境文字。user 路径只处理名单，不处理日期或标题。它不扫描后续用户对话、assistant/tool 历史、未知字段、图片或非文本块，不做协议转换；不保存请求正文、Key、模型、会话、provider、agent 或逐请求明细。合法未知扩展或部分多模态历史不会阻断对已识别 system/developer 文本的安全过滤；未知且无命中的无关payload不计量。合法Gemini已知媒体/code part可能增加unmatched统计口径，相关验收边界见 [`docs/acceptance.md`](docs/acceptance.md)。文本无法证明一个结构完全仿造了宿主环境模板，因此对同形的伪造 XML 不承诺绝无误匹配。
 
 ## 插件页面
 
-sidebar页面“会话日期清理 / Session Date Filter”提供两个独立开关：日期开关同时控制 `Current date` 与 wrapper 内 `Session date`，标题开关控制 Topic Title 行。页面同时显示总计和日期/标题分类的删除行数与命中请求数，以及服务/存储状态；没有reset、日统计、图表或请求内容查看。
+sidebar 页面“会话日期清理 / Session Date Filter”提供三个独立开关：日期开关同时控制 `Current date` 与 wrapper 内 `Session date`，标题开关控制 Topic Title 行，助手开关控制 `available_agents` 列表块替换（默认关闭）。页面同时显示日期/标题删除行、助手列表命中请求与替换块、固定时间提示插入块，以及服务/存储状态；没有reset、日统计、图表或请求内容查看。 旧版两键设置读取时将助手开关视为关闭且不改写文件；所有宿主进程应统一升级后再启用第三项。回滚旧版前需关闭助手开关并恢复两键设置格式，因为旧二进制会拒绝三键配置。
 
 开关保存在插件数据目录的 `filter-config.json`，写入先安全创建目录，再用同目录临时文件原子替换；同一数据目录的其他host每约500ms轮询发现配置变化，因此跨host传播不是即时的。每个请求只读取一次冻结的完整设置快照，并用该快照处理该请求所有支持的文本块。页面以认证 `PATCH` 提交明确变更字段，服务在锁内合并磁盘最新状态；`PUT` 保留为显式全量替换。锁使用异步等待，不阻塞host事件循环，并记录PID与唯一owner token：owner进程仍存活时不会因等待超时被回收；回收进程死亡锁时另用原子guard串行化二次核验与删除。guard损坏或无法确认时会安全等待并报超时，不会冒险删除锁。原子替换或锁写入失败时，本实例内存状态不先行改变；设置读取失败时过滤fail-open、设置API报告不可用，不会静默恢复默认值。设置变更会影响后续prompt，供应商缓存行为不在本插件保证范围内。
 
@@ -18,9 +18,9 @@ sidebar页面“会话日期清理 / Session Date Filter”提供两个独立开
 
 ## 聚合 API 和统计语义
 
-统计使用只读 `GET /api/stats` 与 `GET /health`；设置 API 提供认证 `GET /api/settings`、字段合并 `PATCH /api/settings` 和全量替换 `PUT /api/settings`。统计schemaVersion=1，字段含原聚合计数、日期与标题分类计数、UTC `startedAt` / `updatedAt` / `lastMatchedAt`、`status` 与 `persistence`。页面与存储层均校验分类命中请求数不超过对应删除行数。页面拒绝错误schema、非安全整数、负数、计数关系错误或非法UTC时间，不把其他JSON误画成零。首次API失败显示不可用而非零；之后失败保留最近成功值并标旧数据。监听启动失败不会影响请求过滤，但统计页面不可用。
+统计使用只读 `GET /api/stats` 与 `GET /health`；设置 API 提供认证 `GET /api/settings`、字段合并 `PATCH /api/settings` 和全量替换 `PUT /api/settings`。API `schemaVersion` 保持为 1；SQLite 内部 schema 已升级到 2。统计字段包括总计、日期/标题删除行分类、助手名单替换块与命中请求、时间提示插入块、UTC 时间戳、`status` 和 `persistence`。日期与标题分类命中请求分别受对应删除行数约束；助手名单命中请求受替换块数约束。页面拒绝错误 schema、非安全整数、负数、计数关系错误或非法 UTC 时间，不把其他 JSON 误画成零。首次 API 失败显示不可用而非零；之后失败保留最近成功值并标旧数据。监听启动失败不会影响请求过滤，但统计页面不可用。
 
-每个进入支持hook的可计量请求计一次；客户端新HTTP重试是另一次请求。总命中表示至少实际删除一条日期或标题行；日期、标题分类命中请求数可以重叠，混合命中时总命中只加一次。分类命中与删除行计数从本版本开始累计；升级时保留既有总数与时间，新增分类从零起算，历史总数不能回溯归类，也不会伪造分摊。计数在当前host pending立即可见，其他host在事务提交后出现；正常flush约30秒，存储锁/故障会延迟。进程异常退出或host shutdown时，未flush增量可能丢失；不承诺零丢失、跨进程exactly-once或实际缓存收益。
+每个进入支持 hook 的可计量请求计一次；客户端新 HTTP 重试是另一次请求。总命中表示至少发生一项实际变换：删除日期/标题行，或替换助手名单块。日期、标题命中请求分别对应删除行；助手名单命中请求对应名单替换块。时间提示按实际插入块计数，同一请求可插入多个块。升级时保留既有总数与时间，新增分类从零起算，历史总数不能回溯归类，也不会伪造分摊。所有共享统计数据目录的宿主应统一运行兼容版本。若需要回滚并保留旧版统计，应在升级前以一致性方式备份旧数据，并在回滚时恢复该兼容备份；仅恢复两键设置不能使 schema 2 统计库兼容旧二进制。恢复升级前备份会丢失升级后产生的新分类计数。计数在当前 host pending 立即可见，其他 host 在事务提交后出现；正常 flush 约 30 秒，存储锁/故障会延迟。进程异常退出或 host shutdown 时，未 flush 增量可能丢失；不承诺零丢失、跨进程 exactly-once 或实际缓存收益。
 
 ## 安装与卸载（本地包，不发布）
 

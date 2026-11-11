@@ -9,7 +9,7 @@ const ASSETS = new Map([
   ['/stats-ui.mjs', ['../src/stats-ui.mjs', 'text/javascript; charset=utf-8']],
   ['/style.css', ['../page/style.css', 'text/css; charset=utf-8']],
 ]);
-const EMPTY_STATS = Object.freeze({ processedRequests: 0, matchedRequests: 0, removedLines: 0, unmatchedRequests: 0, startedAt: null, updatedAt: null, lastMatchedAt: null });
+const EMPTY_STATS = Object.freeze({ processedRequests: 0, matchedRequests: 0, removedLines: 0, unmatchedRequests: 0, dateMatchedRequests: 0, dateRemovedLines: 0, topicTitleMatchedRequests: 0, topicTitleRemovedLines: 0, availableAgentsMatchedRequests: 0, availableAgentsReplacedBlocks: 0, timeGuidanceInsertedBlocks: 0, startedAt: null, updatedAt: null, lastMatchedAt: null });
 const NONCE = /^[a-f0-9]{64}$/i;
 
 export class ServiceListenError extends Error {
@@ -94,10 +94,10 @@ export function createService({ store, configStore, port = 3479, token = '' } = 
       let value;
       try { value = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON' }, 400, cors); }
       const keys = value && typeof value === 'object' && !Array.isArray(value) ? Object.keys(value) : [];
-      const validPatch = keys.length > 0 && keys.every((key) => ['sessionDate', 'topicTitle'].includes(key) && typeof value[key] === 'boolean');
-      const validFull = keys.length === 2 && validPatch;
+      const validPatch = keys.length > 0 && keys.every((key) => ['sessionDate', 'topicTitle', 'availableAgents'].includes(key) && typeof value[key] === 'boolean');
+      const validFull = keys.length === 3 && validPatch;
       if (request.method === 'PATCH' && !validPatch) return jsonResponse({ error: 'Settings patch must contain known boolean fields.' }, 400, cors);
-      if (request.method === 'PUT' && !validFull) return jsonResponse({ error: 'Both settings must be booleans.' }, 400, cors);
+      if (request.method === 'PUT' && !validFull) return jsonResponse({ error: 'All settings must be booleans.' }, 400, cors);
       try {
         const settings = request.method === 'PATCH' ? await configStore.update(value) : await configStore.replace(value);
         return jsonResponse({ settings }, 200, cors);
