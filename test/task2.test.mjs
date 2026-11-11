@@ -10,12 +10,15 @@ import { StatsStore, configureStatsStore, getStatsStore, resetStatsStoreForTests
 import { createService } from '../src/service-api.mjs';
 import { initializePluginServer, getPluginServerStatus } from '../src/plugin-server-status.mjs';
 import { validateStats } from '../src/stats-ui.mjs';
+import { FilterConfigStore } from '../src/filter-config.mjs';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const testDataRoot = join(root, 'test-data', `task2-${process.pid}`);
 const dateLine = 'Session date: Tuesday, November 3, 2026';
 const target = `<tools description="The tools you can use below">\n<tool name="Memory">\n<tool.instructions>You have access to the Memory Tool.\n<session_context>\n${dateLine}\nConversation language: en\n</session_context>\n</tool.instructions>\n</tool>\n</tools>`;
 const clean = target.replace(`${dateLine}\n`, '');
+
+function legacyStats(stats) { const { dateMatchedRequests, dateRemovedLines, topicTitleMatchedRequests, topicTitleRemovedLines, ...legacy } = stats; return legacy; }
 
 async function freshDir(name) {
   const dir = join(testDataRoot, name);
@@ -32,7 +35,7 @@ test('onRequest filters a supported body without mutating it and records one mat
   const result = await hook(original, { protocol: 'chat' });
   assert.equal(result.messages[0].content, clean);
   assert.equal(original.messages[0].content, target);
-  assert.deepEqual((await store.snapshot()).stats, {
+  assert.deepEqual(legacyStats((await store.snapshot()).stats), {
     processedRequests: 1, matchedRequests: 1, removedLines: 1, unmatchedRequests: 0,
     startedAt: '2026-11-04T00:00:00.000Z', updatedAt: '2026-11-04T00:00:00.000Z', lastMatchedAt: '2026-11-04T00:00:00.000Z',
   });
@@ -70,7 +73,7 @@ test('onRequest counts each supported protocol request once', async () => {
   }
   assert.equal(await hook({ messages: [] }, { protocol: 'unknown' }), undefined);
   assert.equal(await hook(null, { protocol: 'chat' }), undefined);
-  assert.deepEqual((await store.snapshot()).stats, {
+  assert.deepEqual(legacyStats((await store.snapshot()).stats), {
     processedRequests: 4, matchedRequests: 0, removedLines: 0, unmatchedRequests: 4,
     startedAt: '2026-11-04T03:20:00.000Z', updatedAt: '2026-11-04T03:20:00.000Z', lastMatchedAt: null,
   });
@@ -85,7 +88,7 @@ async function assertUnmeasurable(protocol, body, label) {
   assert.equal(await hook(body, { protocol }), undefined);
   await Promise.resolve();
   assert.deepEqual(body, before);
-  assert.deepEqual(store.snapshot().stats, {
+  assert.deepEqual(legacyStats(store.snapshot().stats), {
     processedRequests: 0, matchedRequests: 0, removedLines: 0, unmatchedRequests: 0,
     startedAt: null, updatedAt: null, lastMatchedAt: null,
   });
@@ -184,7 +187,7 @@ test('onRequest ignores unsupported and malformed request inputs without countin
   const hook = createRequestHook({ store });
   assert.equal(await hook({ messages: [] }, { protocol: 'unknown' }), undefined);
   assert.equal(await hook(null, { protocol: 'chat' }), undefined);
-  assert.deepEqual((await store.snapshot()).stats, {
+  assert.deepEqual(legacyStats((await store.snapshot()).stats), {
     processedRequests: 0, matchedRequests: 0, removedLines: 0, unmatchedRequests: 0,
     startedAt: null, updatedAt: null, lastMatchedAt: null,
   });
@@ -278,7 +281,7 @@ test('lock failures keep pending, yield the event loop and retry without manual 
   const recovered = runtime.snapshot();
   assert.equal(runtime.pending.processedRequests, 0);
   assert.equal(recovered.status, 'ok');
-  assert.deepEqual(recovered.stats, {
+  assert.deepEqual(legacyStats(recovered.stats), {
     processedRequests: 1, matchedRequests: 1, removedLines: 1, unmatchedRequests: 0,
     startedAt: '2026-11-04T04:30:00.000Z', updatedAt: '2026-11-04T04:30:00.000Z', lastMatchedAt: '2026-11-04T04:30:00.000Z',
   });
@@ -307,7 +310,7 @@ test('snapshot includes same-host pending data once and concurrent record during
   store.db = db;
   store.db.transaction = originalImmediate;
   const snapshot = store.snapshot();
-  assert.deepEqual(snapshot.stats, {
+  assert.deepEqual(legacyStats(snapshot.stats), {
     processedRequests: 2, matchedRequests: 1, removedLines: 2, unmatchedRequests: 1,
     startedAt: '2026-11-04T04:00:00.000Z', updatedAt: '2026-11-04T04:00:01.000Z', lastMatchedAt: '2026-11-04T04:00:00.000Z',
   });
@@ -405,7 +408,7 @@ test('store reopens committed stats and preserves owner-only database permission
   writeFileSync(go, 'go', { mode: 0o600 });
   await Promise.all(workers);
   const finalStore = new StatsStore({ dataDir: dir, autoFlush: false });
-  assert.deepEqual(finalStore.snapshot().stats, {
+  assert.deepEqual(legacyStats(finalStore.snapshot().stats), {
     processedRequests: 100, matchedRequests: 52, removedLines: 52, unmatchedRequests: 48,
     startedAt: '2024-11-04T00:00:00.000Z', updatedAt: '2024-11-04T00:00:00.030Z', lastMatchedAt: '2024-11-04T00:00:00.030Z',
   });
@@ -536,7 +539,7 @@ test('HTTP service is read-only, allows only null/same origin and hides storage 
     assert.equal(sameOrigin.status, 200);
     assert.equal(sameOrigin.headers.get('access-control-allow-origin'), `http://127.0.0.1:${address.port}`);
     const json = await stats.json();
-    assert.deepEqual(Object.keys(json.stats).sort(), ['lastMatchedAt', 'matchedRequests', 'processedRequests', 'removedLines', 'startedAt', 'unmatchedRequests', 'updatedAt'].sort());
+    assert.deepEqual(Object.keys(json.stats).sort(), ['lastMatchedAt', 'matchedRequests', 'processedRequests', 'removedLines', 'startedAt', 'unmatchedRequests', 'updatedAt', 'dateMatchedRequests', 'dateRemovedLines', 'topicTitleMatchedRequests', 'topicTitleRemovedLines'].sort());
     const options = await fetch(new URL('/api/stats', address), { method: 'OPTIONS', headers: { Origin: 'null', 'Access-Control-Request-Method': 'GET' } });
     assert.equal(options.status, 204);
     assert.equal(options.headers.get('access-control-allow-methods'), 'GET, OPTIONS');
@@ -739,6 +742,8 @@ test('controller retry window is bounded under a real writer lock and resumes on
 test('corrupt stored aggregate invariants degrade and flush never overwrites the bad row', async () => {
   const corruptions = [
     ['removed below matched', 'UPDATE stats SET removed_lines=0 WHERE id=1'],
+    ['date hits above date lines', 'UPDATE stats SET date_matched_requests=1,date_removed_lines=0 WHERE id=1'],
+    ['title hits above title lines', 'UPDATE stats SET topic_title_matched_requests=1,topic_title_removed_lines=0 WHERE id=1'],
     ['removed without any match', 'UPDATE stats SET matched_requests=0, removed_lines=3, last_matched_at=NULL WHERE id=1'],
     ['processed has no start time', 'UPDATE stats SET started_at=NULL WHERE id=1'],
     ['processed has no update time', 'UPDATE stats SET updated_at=NULL WHERE id=1'],
@@ -843,6 +848,61 @@ test('snapshot marks pending merge overflow degraded and returns safe committed 
   } finally {
     await store.close();
   }
+});
+
+test('category counters overlap by request, sum line counts, and survive flush/reopen', { skip: typeof Bun === 'undefined' }, async () => {
+  const dir = await freshDir('category-counters');
+  const store = new StatsStore({ dataDir: dir, autoFlush: false });
+  assert.equal(store.record({ matched: true, removedLines: 3, dateRemovedLines: 2, topicTitleRemovedLines: 1, at: '2026-11-11T00:00:00.000Z' }), true);
+  assert.equal(store.record({ matched: true, removedLines: 1, dateRemovedLines: 0, topicTitleRemovedLines: 1, at: '2026-11-11T00:00:01.000Z' }), true);
+  const before = store.snapshot().stats;
+  assert.equal(before.matchedRequests, 2);
+  assert.equal(before.removedLines, 4);
+  assert.equal(before.dateMatchedRequests, 1);
+  assert.equal(before.dateRemovedLines, 2);
+  assert.equal(before.topicTitleMatchedRequests, 2);
+  assert.equal(before.topicTitleRemovedLines, 2);
+  assert.equal((await store.flush()).status, 'ok');
+  await store.close();
+  const reopened = new StatsStore({ dataDir: dir, autoFlush: false });
+  assert.deepEqual(reopened.snapshot().stats, before);
+  await reopened.close();
+});
+
+test('legacy aggregate migration preserves totals and initializes category counters as unclassified', { skip: typeof Bun === 'undefined' }, async () => {
+  const dir = await freshDir('legacy-category-upgrade');
+  const { Database } = await import('bun:sqlite');
+  const db = new Database(join(dir, 'stats.sqlite'));
+  db.exec('PRAGMA journal_mode=WAL; CREATE TABLE stats (id INTEGER PRIMARY KEY CHECK(id=1), schema_version INTEGER NOT NULL, processed_requests INTEGER NOT NULL, matched_requests INTEGER NOT NULL, removed_lines INTEGER NOT NULL, started_at TEXT, updated_at TEXT, last_matched_at TEXT);');
+  db.query('INSERT INTO stats VALUES (1,1,12,4,9,?,?,?)').run('2026-11-01T00:00:00.000Z', '2026-11-11T00:00:00.000Z', '2026-11-10T00:00:00.000Z');
+  db.close();
+  const store = new StatsStore({ dataDir: dir, autoFlush: false });
+  const stats = store.snapshot().stats;
+  assert.deepEqual([stats.processedRequests, stats.matchedRequests, stats.removedLines], [12, 4, 9]);
+  assert.deepEqual([stats.dateMatchedRequests, stats.dateRemovedLines, stats.topicTitleMatchedRequests, stats.topicTitleRemovedLines], [0, 0, 0, 0]);
+  await store.close();
+});
+
+test('settings API authenticates reads and writes, validates booleans, and persists settings', { skip: typeof Bun === 'undefined' }, async () => {
+  const dir = await freshDir('settings-api');
+  const config = new FilterConfigStore({ dataDir: dir });
+  const token = 'b'.repeat(64);
+  const service = createService({ store: { snapshot: () => ({ schemaVersion: 1, status: 'ok', stats: {}, persistence: 'fixture' }) }, configStore: config, port: 0, token });
+  try {
+    const url = new URL('/api/settings', service.server.url);
+    assert.equal((await fetch(url)).status, 401);
+    assert.equal((await fetch(url, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionDate: false, topicTitle: false }) })).status, 401);
+    const invalid = await fetch(url, { method: 'PUT', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ sessionDate: 0, topicTitle: false }) });
+    assert.equal(invalid.status, 400);
+    const saved = await fetch(url, { method: 'PUT', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ sessionDate: false, topicTitle: true }) });
+    assert.equal(saved.status, 200);
+    assert.deepEqual((await saved.json()).settings, { sessionDate: false, topicTitle: true });
+    const read = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+    assert.deepEqual((await read.json()).settings, { sessionDate: false, topicTitle: true });
+    const reloaded = new FilterConfigStore({ dataDir: dir });
+    assert.deepEqual(reloaded.snapshot(), { sessionDate: false, topicTitle: true });
+    reloaded.close();
+  } finally { await service.stop(); config.close(); }
 });
 
 test.after(async () => {

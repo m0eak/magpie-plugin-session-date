@@ -18,7 +18,7 @@ async function expectMatched(hook, events, body, protocol, expected, removedLine
   await Promise.resolve();
   assert.deepEqual(result, expected);
   assert.deepEqual(body, before, 'request body must not be mutated in place');
-  assert.deepEqual(events, [{ matched: true, removedLines, at: '2026-11-05T12:00:00.000Z' }]);
+  assert.deepEqual(events, [{ matched: true, removedLines, dateRemovedLines: removedLines, topicTitleRemovedLines: 0, at: '2026-11-05T12:00:00.000Z' }]);
 }
 
 test('public hook filters Chat system date with assistant tool_calls missing content', async () => {

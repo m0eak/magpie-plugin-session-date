@@ -16,3 +16,9 @@ The integration used an isolated local host and a synthetic loopback upstream. I
 ## Limits
 
 Acceptance applies to the recorded environment. The desktop statistics page, other host versions, and real-world cache benefits were not verified. Known Gemini media and code parts can increase the unmatched-count denominator. Statistics count prompt transformations and do not measure model cache hits or token savings. Pending increments can be lost if the process exits abnormally before persistence. Removing a plugin registration may require restarting host processes that loaded it.
+
+## Follow-up source validation
+
+On November 11, 2026, the source changes for independent date and topic-title controls, category counters, and concurrent settings updates passed local validation on the merge candidate. Node reported 108 passing tests, 11 skipped, and 0 failures; Bun reported 67 passing tests, 1 skipped, and 0 failures. The local integration check passed for the hook, read-only HTTP service, owner-only permissions, and four-process SQLite aggregation. `npm pack --dry-run --json --ignore-scripts` listed 18 package files.
+
+This follow-up did not repeat the November 8 host acceptance, install or reload the plugin in a running host, publish a package, send real model requests, or measure provider cache behavior. The host acceptance above remains limited to its recorded November 8 source snapshot.

@@ -85,3 +85,29 @@ test('service serves fixed assets and read-only authenticated API with proxy CSP
     assert.equal((await fetch(new URL('/health', root))).status, 200);
   } finally { await service.stop(); }
 });
+
+test('settings PATCH merges explicit fields, PUT replaces all fields, and writes require authentication', { skip: typeof Bun === 'undefined' }, async () => {
+  let settings = { sessionDate: true, topicTitle: true };
+  const configStore = {
+    snapshot: () => settings,
+    async update(patch) { settings = Object.freeze({ ...settings, ...patch }); return settings; },
+    async replace(value) { settings = Object.freeze({ ...value }); return settings; },
+  };
+  const service = createService({ store: { snapshot: () => good }, configStore, port: 0, token: 'a'.repeat(64) });
+  try {
+    const root = service.server.url;
+    const headers = { Authorization: `Bearer ${'a'.repeat(64)}`, Origin: 'null', 'Content-Type': 'application/json' };
+    const dateChange = await fetch(new URL('/api/settings', root), { method: 'PATCH', headers, body: JSON.stringify({ sessionDate: false }) });
+    assert.equal(dateChange.status, 200);
+    assert.deepEqual((await dateChange.json()).settings, { sessionDate: false, topicTitle: true });
+    const titleChange = await fetch(new URL('/api/settings', root), { method: 'PATCH', headers, body: JSON.stringify({ topicTitle: false }) });
+    assert.deepEqual((await titleChange.json()).settings, { sessionDate: false, topicTitle: false });
+    assert.equal((await fetch(new URL('/api/settings', root), { method: 'PATCH', headers, body: JSON.stringify({ unknown: false }) })).status, 400);
+    const replace = await fetch(new URL('/api/settings', root), { method: 'PUT', headers, body: JSON.stringify({ sessionDate: true, topicTitle: true }) });
+    assert.deepEqual((await replace.json()).settings, { sessionDate: true, topicTitle: true });
+    const unauthorized = await fetch(new URL('/api/settings', root), { method: 'PATCH', headers: { Origin: 'null', 'Content-Type': 'application/json' }, body: JSON.stringify({ topicTitle: false }) });
+    assert.equal(unauthorized.status, 401);
+    const preflight = await fetch(new URL('/api/settings', root), { method: 'OPTIONS', headers: { Origin: 'null', 'Access-Control-Request-Method': 'PATCH' } });
+    assert.equal(preflight.status, 204);
+  } finally { await service.stop(); }
+});

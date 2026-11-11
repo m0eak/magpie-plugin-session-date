@@ -1,6 +1,8 @@
 const TOOLS_OPEN = '<tools description="The tools you can use below">';
 const TOOL_TAG = /<tool(?:\s+[^>]*)?>|<\/tool>/g;
 const DATE_LINE = /^[\t ]*Session date:[\t ]*(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),[\t ]*(January|February|March|April|May|June|July|August|September|October|November|December)[\t ]+(\d{1,2}),[\t ]+(\d{4})[\t ]*$/;
+const CURRENT_DATE_LINE = /^[\t ]*Current date:[\t ]*(\d{4})-(\d{2})-(\d{2})(?:[\t ]+\(([^()\r\n]+)\))?[\t ]*$/;
+const TOPIC_TITLE_LINE = /^[\t ]*\|[\t ]*Topic Title[\t ]*\|(?:[^\r\n]*\|)[\t ]*$/;
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = new Map([
   ['January', 0], ['February', 1], ['March', 2], ['April', 3], ['May', 4], ['June', 5],
@@ -55,7 +57,45 @@ function isValidCalendarLine(line) {
   return date.getUTCFullYear() === year && date.getUTCMonth() === month && date.getUTCDate() === day && WEEKDAYS[date.getUTCDay()] === weekday;
 }
 
-function stripSessionBlock(text, start, end, protectedLines) {
+function isPromptMetadataLine(line) {
+  if (TOPIC_TITLE_LINE.test(line)) return true;
+  const match = CURRENT_DATE_LINE.exec(line);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  if (year < 1 || month < 0 || month > 11 || day < 1 || day > 31) return false;
+  const date = new Date(0);
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCFullYear(year, month, day);
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month && date.getUTCDate() === day;
+}
+
+function stripPromptMetadata(text, options = {}) {
+  const protectedLines = protectedMarkdownLines(text);
+  let output = '', removedLines = 0, dateRemovedLines = 0, topicTitleRemovedLines = 0, cursor = 0;
+  while (cursor < text.length) {
+    const lineStart = cursor;
+    let lineEnd = text.indexOf('\n', cursor);
+    if (lineEnd === -1) lineEnd = text.length;
+    const valueEnd = lineEnd > lineStart && text[lineEnd - 1] === '\r' ? lineEnd - 1 : lineEnd;
+    const line = text.slice(lineStart, valueEnd);
+    const next = lineEnd < text.length ? lineEnd + 1 : lineEnd;
+    const isTitle = TOPIC_TITLE_LINE.test(line);
+    const isCurrentDate = !isTitle && isPromptMetadataLine(line);
+    if (!protectedLines.has(lineStart) && ((isTitle && options.topicTitle !== false) || (isCurrentDate && options.sessionDate !== false))) {
+      removedLines += 1;
+      if (isTitle) topicTitleRemovedLines += 1;
+      else dateRemovedLines += 1;
+    } else {
+      output += text.slice(lineStart, next);
+    }
+    cursor = next;
+  }
+  return { text: output, removedLines, dateRemovedLines, topicTitleRemovedLines };
+}
+
+function stripSessionBlock(text, start, end, protectedLines, options = {}) {
   let output = '', removedLines = 0, cursor = start;
   while (cursor < end) {
     let lineStart = cursor;
@@ -66,7 +106,7 @@ function stripSessionBlock(text, start, end, protectedLines) {
     const line = text.slice(lineStart, valueEnd);
     const next = lineEnd < text.length ? lineEnd + 1 : lineEnd;
     const insideTarget = lineStart >= start && lineEnd <= end;
-    if (insideTarget && !protectedLines.has(lineStart) && isValidCalendarLine(line)) {
+    if (options.sessionDate !== false && insideTarget && !protectedLines.has(lineStart) && isValidCalendarLine(line)) {
       removedLines += 1;
       output += text.slice(cursor, lineStart);
       cursor = next;
@@ -111,7 +151,7 @@ function findTagsInRange(text, open, close, start, end, protectedLines) {
   return result;
 }
 
-function stripInTool(text, tool, protectedLines) {
+function stripInTool(text, tool, protectedLines, options) {
   const instructionOpen = '<tool.instructions>', instructionClose = '</tool.instructions>';
   const instructions = findTagsInRange(text, instructionOpen, instructionClose, tool.contentStart, tool.contentEnd, protectedLines);
   if (!instructions || instructions.length !== 1) return [];
@@ -122,7 +162,7 @@ function stripInTool(text, tool, protectedLines) {
   for (const offset of [tool.start, instruction.start, instruction.contentEnd, session.start, session.contentEnd]) {
     if (protectedLines.has(lineStartAt(text, offset))) return [];
   }
-  const result = stripSessionBlock(text, session.contentStart, session.contentEnd, protectedLines);
+  const result = stripSessionBlock(text, session.contentStart, session.contentEnd, protectedLines, options);
   return result.removedLines ? [{ ...result, start: session.contentStart, end: session.contentEnd }] : [];
 }
 
@@ -200,11 +240,20 @@ function scanTopLevelTools(text) {
 }
 
 /** Remove matched date lines only inside known LobeHub Memory/Credentials tool prompt wrappers. */
-export function stripSessionDates(text) {
+export function stripSessionDates(text, options = {}) {
   if (typeof text !== 'string') return { text, removedLines: 0 };
+  const settings = {
+    sessionDate: options.sessionDate !== false,
+    topicTitle: options.topicTitle !== false,
+  };
   const protectedLines = protectedMarkdownLines(text);
   const scan = scanTopLevelTools(text);
-  if (!scan.valid) return { text, removedLines: 0 };
+  if (!scan.valid) {
+    const metadata = stripPromptMetadata(text, settings);
+    return options.withCategories
+      ? metadata
+      : { text: metadata.text, removedLines: metadata.removedLines };
+  }
 
   let output = '', removedLines = 0, cursor = 0;
   for (const region of scan.regions) {
@@ -222,7 +271,7 @@ export function stripSessionDates(text) {
     if (tools) {
       for (const tool of tools) {
         if (protectedLines.has(lineStartAt(text, tool.start))) continue;
-        replacements.push(...stripInTool(text, tool, protectedLines));
+        replacements.push(...stripInTool(text, tool, protectedLines, settings));
       }
     }
 
@@ -242,7 +291,15 @@ export function stripSessionDates(text) {
     cursor = region.end;
   }
 
-  if (removedLines === 0) return { text, removedLines: 0 };
-  output += text.slice(cursor);
-  return { text: output, removedLines };
+  if (removedLines === 0) output = text;
+  else output += text.slice(cursor);
+  const metadata = stripPromptMetadata(output, settings);
+  const totalRemovedLines = removedLines + metadata.removedLines;
+  const result = {
+    text: totalRemovedLines === 0 ? text : metadata.text,
+    removedLines: totalRemovedLines,
+    dateRemovedLines: removedLines + metadata.dateRemovedLines,
+    topicTitleRemovedLines: metadata.topicTitleRemovedLines,
+  };
+  return options.withCategories ? result : { text: result.text, removedLines: result.removedLines };
 }

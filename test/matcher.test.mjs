@@ -27,13 +27,13 @@ test('preserves line indentation, trailing horizontal space, and CRLF bytes', ()
   assert.deepEqual(stripSessionDates(input), { text: expected, removedLines: 1 });
 });
 
-test('removes multiple matching lines in multiple supported tools', () => {
+test('removes session dates and ordinary current date lines in multiple supported tools', () => {
   const first = toolBlock('Memory', `<session_context>\n${dateLine}\nCurrent date: 2026-11-04\n${dateLine}\n</session_context>`);
   const second = toolBlock('Credentials');
   const result = stripSessionDates(prompt(`${first}\n${second}`));
-  assert.equal(result.removedLines, 3);
+  assert.equal(result.removedLines, 4);
   assert.equal(result.text.includes(dateLine), false);
-  assert.equal(result.text.includes('Current date: 2026-11-04'), true);
+  assert.equal(result.text.includes('Current date: 2026-11-04'), false);
 });
 
 test('keeps identical date text outside the exact tools wrapper', () => {

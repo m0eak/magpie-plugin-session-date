@@ -1,5 +1,7 @@
 import { randomBytes } from 'node:crypto';
+import { join } from 'node:path';
 import { configureStatsStore } from './src/stats-store.mjs';
+import { configureFilterConfig } from './src/filter-config.mjs';
 import { createService, ServiceListenError } from './src/service-api.mjs';
 import { getPluginServerStatus, initializePluginServer } from './src/plugin-server-status.mjs';
 
@@ -15,9 +17,10 @@ export default {
     if (active) return {};
     const root = typeof input?.directory === 'string' ? input.directory : '';
     const store = configureStatsStore({ directory: root });
+    const configStore = configureFilterConfig({ dataDir: root ? join(root, 'session-date-filter') : '' });
     let service;
     try {
-      service = createService({ store, port: serverPort(options), token: randomBytes(32).toString('hex') });
+      service = createService({ store, configStore, port: serverPort(options), token: randomBytes(32).toString('hex') });
     } catch (error) {
       if (!(error instanceof ServiceListenError)) throw error;
       initializePluginServer({ state: 'unavailable', listenerAvailable: false, storageStatus: store.snapshot().status, reason: 'listener-unavailable' });

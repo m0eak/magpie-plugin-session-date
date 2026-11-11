@@ -5,7 +5,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { createPageBridge } from '../src/page-bridge.mjs';
-import { createStatsPoller, setServiceToken as setPollerToken } from '../src/stats-ui.mjs';
+import { createStatsPoller, readFilterSettings, saveFilterSettings, setServiceToken as setPollerToken } from '../src/stats-ui.mjs';
 import { createService } from '../src/service-api.mjs';
 import { HOST_BRIDGE_ROUTE, HOST_MESSAGE_MARKER, HOST_THEME_PREFIX } from './fixtures/host-contract.mjs';
 
@@ -14,9 +14,15 @@ const HOST_TOKEN = 'a'.repeat(64);
 const BAD_TOKEN = 'e'.repeat(64);
 const good = { schemaVersion: 1, status: 'ok', stats: { processedRequests: 3, matchedRequests: 2, removedLines: 4, unmatchedRequests: 1, startedAt: '2026-11-05T02:03:04.000Z', updatedAt: '2026-11-05T02:04:04.000Z', lastMatchedAt: '2026-11-05T02:04:00.000Z' }, persistence: 'synthetic local fixture' };
 
+async function waitUntil(predicate, label) {
+  const deadline = Date.now() + 1500;
+  while (!predicate() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.ok(predicate(), `timed out waiting for ${label}`);
+}
+
 function makeDocument() {
   const elements = new Map();
-  for (const id of ['status','stale','total','processed','matched','unmatched','started','lastMatched','updated','refresh']) {
+  for (const id of ['status','stale','total','processed','matched','unmatched','started','lastMatched','updated','refresh','dateLines','dateHits','titleLines','titleHits','sessionDateEnabled','topicTitleEnabled','settingsStatus']) {
     const listeners = new Map();
     elements.set(id, { id, textContent: ['total','processed','matched','unmatched'].includes(id) ? '—' : (['started','lastMatched','updated'].includes(id) ? '暂无' : ''), dataset: {}, style: { colorScheme: '', setProperty() {} }, attributes: {}, disabled: false, title: '',
       addEventListener(type, fn) { listeners.set(type, fn); }, setAttribute(key, value) { this.attributes[key] = value; }, removeAttribute(key) { delete this.attributes[key]; },
@@ -27,7 +33,7 @@ function makeDocument() {
   return { elements, html, document: { documentElement: html, visibilityState: 'visible', getElementById: (id) => elements.get(id), addEventListener(type, fn) { listeners.set(type, fn); }, fire(type) { listeners.get(type)?.(); } }, listeners };
 }
 
-async function loadActualPageApp(service, { bootstrapOverride, onFetch, appSourceOverride, mockStats = false, captureRenderErrors = false, mockBridge = false, legacyQueryToken = false } = {}) {
+async function loadActualPageApp(service, { bootstrapOverride, onFetch, fetchOverride, appSourceOverride, mockStats = false, captureRenderErrors = false, mockBridge = false, legacyQueryToken = false } = {}) {
   const response = await fetch(new URL('/?theme=dark&lang=zh-CN', service.server.url));
   const html = await response.text();
   const bootstrapCode = html.match(/<script nonce="[^"]+">(window\.__SESSION_DATE_FILTER__=[^<]+)<\/script>/)?.[1];
@@ -43,6 +49,7 @@ async function loadActualPageApp(service, { bootstrapOverride, onFetch, appSourc
     onFetch?.(url, init);
     if (!mockStats && String(url).includes('/api/stats') && init?.headers?.Authorization === `Bearer ${BAD_TOKEN}`) return Promise.resolve({ ok: false, status: 401, json: async () => ({ error: 'Unauthorized' }) });
     if (mockStats && String(url).includes('/api/stats')) return Promise.resolve({ ok: true, json: async () => good });
+    if (fetchOverride) return fetchOverride(url, init, service);
     return fetch(new URL(url, service.server.url), { ...init, headers: { ...(init?.headers || {}), Origin: 'null' } });
   };
   const context = vm.createContext({
@@ -52,12 +59,12 @@ async function loadActualPageApp(service, { bootstrapOverride, onFetch, appSourc
     setTimeout, clearTimeout, URL, Intl, Date, String, Object, Number, Error, Promise, AbortController, console,
     __deps: null,
   });
-  context.__deps = { createPageBridge: (options) => mockBridge ? { ready: Promise.resolve({ visible: true, theme: null }), visible: true, stop() {} } : createPageBridge({ ...options, selfWindow: context, parentWindow: host }), createStatsPoller: (options) => { const poller = createStatsPoller({ ...options, fetcher: requestFetch }); if (captureRenderErrors) { const start = poller.start.bind(poller); poller.start = (interval, callback) => start(interval, (result) => { try { callback(result); } catch (error) { win.__renderError = error; } }); } return poller; }, setServiceToken: (value) => { if (typeof value === 'string') { context.__appToken = value; setPollerToken(value); } } };
+  context.__deps = { createPageBridge: (options) => mockBridge ? { ready: Promise.resolve({ visible: true, theme: null }), visible: true, stop() {} } : createPageBridge({ ...options, selfWindow: context, parentWindow: host }), createStatsPoller: (options) => { const poller = createStatsPoller({ ...options, fetcher: requestFetch }); if (captureRenderErrors) { const start = poller.start.bind(poller); poller.start = (interval, callback) => start(interval, (result) => { try { callback(result); } catch (error) { win.__renderError = error; } }); } return poller; }, readFilterSettings: (options) => readFilterSettings({ ...options, fetcher: requestFetch }), saveFilterSettings: (settings, options) => saveFilterSettings(settings, { ...options, fetcher: requestFetch }), setServiceToken: (value) => { if (typeof value === 'string') { context.__appToken = value; setPollerToken(value); } } };
   // Run the fetched production entry body with its production dependencies injected;
   // only the two ES import declarations are adapted for this no-browser harness.
   let appSource = appSourceOverride ?? await (await fetch(new URL('/app.mjs', service.server.url), { headers: { Origin: 'null' } })).text();
   appSource = appSource.replace(/^import \{ createPageBridge \} from '\.\/page-bridge\.mjs';\s*$/m, 'const createPageBridge = (options) => __deps.createPageBridge(options);');
-  appSource = appSource.replace(/^import \{ createStatsPoller, setServiceToken \} from '\.\/stats-ui\.mjs';\s*$/m, 'const createStatsPoller = (options) => __deps.createStatsPoller(options); const setServiceToken = __deps.setServiceToken;');
+  appSource = appSource.replace(/^import \{ createStatsPoller, readFilterSettings, saveFilterSettings, setServiceToken \} from '\.\/stats-ui\.mjs';\s*$/m, 'const createStatsPoller = (options) => __deps.createStatsPoller(options); const readFilterSettings = (...args) => __deps.readFilterSettings(...args); const saveFilterSettings = (...args) => __deps.saveFilterSettings(...args); const setServiceToken = __deps.setServiceToken;');
   assert.doesNotMatch(appSource, /^import /m, 'only the production entry imports should require adaptation in this harness');
   vm.runInContext(bootstrapCode, context);
   if (bootstrapOverride !== undefined) win.__SESSION_DATE_FILTER__ = bootstrapOverride;
@@ -201,7 +208,7 @@ test('a rejected bootstrap bearer token shows unavailable without rendering zero
     await new Promise((resolve) => setTimeout(resolve, 15));
     assert.equal(ui.elements.get('status').dataset.state, 'unavailable');
     assert.equal(ui.elements.get('total').textContent, '—');
-    assert.equal(calls, 1, 'the bearer token is only attempted against the fixed authenticated API');
+    assert.equal(calls, 2, 'the bearer token is attempted only against the authenticated stats and settings APIs');
     ui.cleanup();
   } finally { await service.stop(); }
 });
@@ -278,4 +285,66 @@ test('root rejects non-read methods before rendering bootstrap; assets and root 
     assert.equal((await fetch(rootUrl, { method: 'HEAD' })).status, 200);
     assert.equal((await fetch(new URL('/style.css?x=1', service.server.url))).status, 404);
   } finally { await service.stop(); }
+});
+
+test('actual settings UI reconciles a lost save response and renders authoritative checkbox state', { skip: typeof Bun === 'undefined' }, async () => {
+  let settings = { sessionDate: true, topicTitle: true };
+  const configStore = {
+    snapshot: () => settings,
+    async update(patch) { settings = Object.freeze({ ...settings, ...patch }); return settings; },
+    async replace(value) { settings = Object.freeze({ ...value }); return settings; },
+  };
+  const service = createService({ store: { snapshot: () => good }, configStore, port: 0, token: HOST_TOKEN });
+  let loseNextPatchResponse = true;
+  let failNextPatch = false;
+  const ui = await loadActualPageApp(service, {
+    fetchOverride: async (url, init, currentService) => {
+      if (init?.method === 'PATCH' && failNextPatch) {
+        failNextPatch = false;
+        return { ok: false, status: 503, json: async () => ({ error: 'synthetic save failure' }) };
+      }
+      const response = await fetch(new URL(url, currentService.server.url), {
+        ...init,
+        headers: { ...(init?.headers || {}), Origin: 'null' },
+      });
+      if (init?.method === 'PATCH' && loseNextPatchResponse) {
+        loseNextPatchResponse = false;
+        throw new Error('synthetic response loss after server commit');
+      }
+      return response;
+    },
+  });
+  try {
+    await waitUntil(() => ui.elements.get('settingsStatus').dataset.state === 'ok', 'settings initial load');
+    const dateToggle = ui.elements.get('sessionDateEnabled');
+    const titleToggle = ui.elements.get('topicTitleEnabled');
+    assert.equal(dateToggle.checked, true);
+    assert.equal(titleToggle.checked, true);
+
+    dateToggle.checked = false;
+    dateToggle.fire('change');
+    await waitUntil(() => ui.elements.get('settingsStatus').textContent.includes('确认设置'), 'reconciliation after a committed save response was lost');
+    assert.deepEqual(settings, { sessionDate: false, topicTitle: true });
+    assert.equal(dateToggle.checked, false);
+    assert.equal(titleToggle.checked, true);
+
+    settings = { sessionDate: true, topicTitle: true };
+    titleToggle.checked = false;
+    titleToggle.fire('change');
+    await waitUntil(() => ui.elements.get('settingsStatus').textContent.includes('已保存'), 'successful save rendering');
+    assert.deepEqual(settings, { sessionDate: true, topicTitle: false });
+    assert.equal(dateToggle.checked, true);
+    assert.equal(titleToggle.checked, false);
+
+    titleToggle.checked = true;
+    failNextPatch = true;
+    titleToggle.fire('change');
+    await waitUntil(() => ui.elements.get('settingsStatus').textContent.includes('保存未生效'), 'failed save reconciliation');
+    assert.deepEqual(settings, { sessionDate: true, topicTitle: false });
+    assert.equal(dateToggle.checked, true);
+    assert.equal(titleToggle.checked, false);
+  } finally {
+    ui.cleanup();
+    await service.stop();
+  }
 });
