@@ -25,7 +25,10 @@ export function createRequestHook({ store = getStatsStore, config = getFilterCon
     let result;
     try {
       const settings = config().snapshot();
-      if (!settings || typeof settings.sessionDate !== 'boolean' || typeof settings.topicTitle !== 'boolean') return undefined;
+      if (!settings || typeof settings.sessionDate !== 'boolean' || typeof settings.topicTitle !== 'boolean') {
+        if (measurement.measurable) recordStats({ matched: false, removedLines: 0, at });
+        return undefined;
+      }
       result = protocols.filterRequest(body, protocol, settings);
     } catch {
       if (measurement.measurable) recordStats({ matched: false, removedLines: 0, at });

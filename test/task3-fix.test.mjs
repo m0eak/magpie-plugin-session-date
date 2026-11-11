@@ -348,3 +348,97 @@ test('actual settings UI reconciles a lost save response and renders authoritati
     await service.stop();
   }
 });
+
+test('actual settings UI retries an initial settings read from the existing refresh button', { skip: typeof Bun === 'undefined' }, async () => {
+  const service = createService({ store: { snapshot: () => good }, port: 0, token: HOST_TOKEN });
+  let reads = 0;
+  try {
+    const ui = await loadActualPageApp(service, {
+      mockStats: true,
+      mockBridge: true,
+      fetchOverride: async (url) => {
+        if (!String(url).includes('/api/settings')) return undefined;
+        reads++;
+        if (reads === 1) throw new Error('synthetic first read failure');
+        return { ok: true, json: async () => ({ settings: { sessionDate: false, topicTitle: true } }) };
+      },
+    });
+    await waitUntil(() => ui.elements.get('settingsStatus').dataset.state === 'unavailable', 'initial settings read failure');
+    assert.equal(ui.elements.get('sessionDateEnabled').disabled, true);
+    assert.equal(ui.elements.get('topicTitleEnabled').disabled, true);
+    ui.elements.get('refresh').fire('click');
+    await waitUntil(() => reads === 2 && !ui.elements.get('sessionDateEnabled').disabled, 'settings read recovery from refresh');
+    assert.equal(ui.elements.get('sessionDateEnabled').checked, false);
+    assert.equal(ui.elements.get('topicTitleEnabled').checked, true);
+    ui.cleanup();
+  } finally { await service.stop(); }
+});
+
+test('actual settings UI rereads an unconfirmed save from the refresh button', { skip: typeof Bun === 'undefined' }, async () => {
+  const service = createService({ store: { snapshot: () => good }, port: 0, token: HOST_TOKEN });
+  let reads = 0;
+  let failReconcile = false;
+  const ui = await loadActualPageApp(service, {
+    mockStats: true,
+    mockBridge: true,
+    fetchOverride: async (url, init) => {
+      if (!String(url).includes('/api/settings')) return undefined;
+      if (init?.method === 'PATCH') throw new Error('synthetic lost save response');
+      reads++;
+      if (failReconcile && reads === 2) throw new Error('synthetic reconciliation read failure');
+      const settings = reads < 3 ? { sessionDate: true, topicTitle: false } : { sessionDate: false, topicTitle: true };
+      return { ok: true, json: async () => ({ settings }) };
+    },
+  });
+  try {
+    await waitUntil(() => !ui.elements.get('topicTitleEnabled').disabled, 'initial settings load');
+    failReconcile = true;
+    ui.elements.get('topicTitleEnabled').checked = true;
+    ui.elements.get('topicTitleEnabled').fire('change');
+    await waitUntil(() => ui.elements.get('settingsStatus').dataset.state === 'unavailable', 'unconfirmed save after failed reconciliation');
+    assert.match(ui.elements.get('settingsStatus').textContent, /保存结果未确认/);
+    ui.elements.get('refresh').fire('click');
+    await waitUntil(() => reads === 3 && ui.elements.get('settingsStatus').dataset.state === 'ok', 'manual settings reread recovery');
+    assert.equal(ui.elements.get('sessionDateEnabled').checked, false);
+    assert.equal(ui.elements.get('topicTitleEnabled').checked, true);
+  } finally {
+    ui.cleanup();
+    await service.stop();
+  }
+});
+
+test('actual settings UI queues refresh during save and applies the later authoritative read', { skip: typeof Bun === 'undefined' }, async () => {
+  const service = createService({ store: { snapshot: () => good }, port: 0, token: HOST_TOKEN });
+  let reads = 0;
+  let releaseSave;
+  let patchStartedResolve;
+  const patchStarted = new Promise((resolve) => { patchStartedResolve = resolve; });
+  const ui = await loadActualPageApp(service, {
+    mockStats: true,
+    mockBridge: true,
+    fetchOverride: async (url, init) => {
+      if (!String(url).includes('/api/settings')) return undefined;
+      if (init?.method === 'PATCH') {
+        patchStartedResolve();
+        return new Promise((resolve) => { releaseSave = () => resolve({ ok: true, json: async () => ({ settings: { sessionDate: true, topicTitle: true } }) }); });
+      }
+      reads++;
+      const settings = reads === 1 ? { sessionDate: true, topicTitle: false } : { sessionDate: false, topicTitle: true };
+      return { ok: true, json: async () => ({ settings }) };
+    },
+  });
+  try {
+    await waitUntil(() => !ui.elements.get('topicTitleEnabled').disabled, 'initial settings load');
+    ui.elements.get('topicTitleEnabled').checked = true;
+    ui.elements.get('topicTitleEnabled').fire('change');
+    await patchStarted;
+    ui.elements.get('refresh').fire('click');
+    releaseSave();
+    await waitUntil(() => reads === 2 && ui.elements.get('settingsStatus').dataset.state === 'ok' && !ui.elements.get('topicTitleEnabled').disabled, 'serialized settings read after save');
+    assert.equal(ui.elements.get('sessionDateEnabled').checked, false);
+    assert.equal(ui.elements.get('topicTitleEnabled').checked, true);
+  } finally {
+    ui.cleanup();
+    await service.stop();
+  }
+});

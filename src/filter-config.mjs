@@ -163,12 +163,13 @@ export class FilterConfigStore {
   snapshot() { return this.failed ? null : this.config; }
 
   refresh() {
-    if (!this.path || this.failed) return false;
+    if (!this.path) return false;
     try {
       const loaded = loadFile(this.path);
-      if (loaded.mtime === this.mtime && loaded.config.sessionDate === this.config.sessionDate && loaded.config.topicTitle === this.config.topicTitle) return false;
+      if (!this.failed && loaded.mtime === this.mtime && loaded.config.sessionDate === this.config.sessionDate && loaded.config.topicTitle === this.config.topicTitle) return false;
       this.config = loaded.config;
       this.mtime = loaded.mtime;
+      this.failed = false;
       return true;
     } catch {
       this.failed = true;

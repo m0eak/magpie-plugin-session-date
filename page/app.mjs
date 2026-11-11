@@ -59,60 +59,104 @@ if (!validBootstrap) {
     pageRoot.lang = copy ? 'zh-CN' : 'en';
   }, onVisibility: (visible) => poller?.setVisible(visible && document.visibilityState === 'visible') });
   poller = createStatsPoller({ url: './api/stats', getVisible: () => document.visibilityState === 'visible' && bridge.visible, onState: (kind) => setBusy(kind === 'loading' || kind === 'refreshing') });
-  fields.refresh.addEventListener('click', () => { void poller.refresh().then((result) => { show(result); setBusy(false); }); });
   const dateToggle = document.getElementById('sessionDateEnabled');
   const titleToggle = document.getElementById('topicTitleEnabled');
   const settingsStatus = document.getElementById('settingsStatus');
   let settings = null;
+  let settingsRevision = 0;
+  let settingsReadId = 0;
+  let settingsReading = false;
+  let settingsSaving = false;
+  let settingsRefreshPending = false;
+  const updateSettingsControls = () => {
+    const disabled = settings === null || settingsReading || settingsSaving;
+    dateToggle.disabled = disabled;
+    titleToggle.disabled = disabled;
+  };
   const loadSettings = async () => {
+    if (settingsSaving) {
+      settingsRefreshPending = true;
+      return;
+    }
+    const readId = ++settingsReadId;
+    const revision = settingsRevision;
+    settingsReading = true;
+    updateSettingsControls();
     try {
-      settings = await readFilterSettings({ url: './api/settings' });
+      const loaded = await readFilterSettings({ url: './api/settings' });
+      if (readId !== settingsReadId || revision !== settingsRevision) return;
+      settings = loaded;
       dateToggle.checked = settings.sessionDate;
       titleToggle.checked = settings.topicTitle;
-      dateToggle.disabled = false;
-      titleToggle.disabled = false;
       settingsStatus.textContent = text('设置已加载', 'Settings loaded');
       settingsStatus.dataset.state = 'ok';
     } catch {
+      if (readId !== settingsReadId || revision !== settingsRevision) return;
       settingsStatus.textContent = text('设置读取失败，当前状态未知', 'Could not load settings; current state is unknown');
       settingsStatus.dataset.state = 'unavailable';
+    } finally {
+      if (readId === settingsReadId) {
+        settingsReading = false;
+        updateSettingsControls();
+      }
     }
   };
   const changeSetting = async (key, enabled) => {
     if (!settings) { await loadSettings(); return; }
+    if (settingsSaving || settingsReading) return;
     const previous = settings;
-    dateToggle.disabled = true;
-    titleToggle.disabled = true;
-    settingsStatus.textContent = text('正在保存…', 'Saving…');
-    settingsStatus.dataset.state = 'loading';
+    const revision = ++settingsRevision;
+    ++settingsReadId;
+    settingsReading = false;
+    settingsSaving = true;
+    updateSettingsControls();
     try {
-      settings = await saveFilterSettings({ [key]: enabled }, { url: './api/settings' });
-      dateToggle.checked = settings.sessionDate;
-      titleToggle.checked = settings.topicTitle;
-      settingsStatus.textContent = text('已保存；其他运行实例将在轮询后生效', 'Saved; other instances update after polling');
-      settingsStatus.dataset.state = 'ok';
+      const saved = await saveFilterSettings({ [key]: enabled }, { url: './api/settings' });
+      if (revision === settingsRevision) {
+        settings = saved;
+        dateToggle.checked = saved.sessionDate;
+        titleToggle.checked = saved.topicTitle;
+        settingsStatus.textContent = text('设置已保存', 'Settings saved');
+        settingsStatus.dataset.state = 'ok';
+      }
     } catch {
       try {
-        settings = await readFilterSettings({ url: './api/settings' });
-        dateToggle.checked = settings.sessionDate;
-        titleToggle.checked = settings.topicTitle;
-        const confirmed = settings[key] === enabled;
-        settingsStatus.textContent = confirmed
-          ? text('保存响应未确认；已重新读取并确认设置', 'Save response was lost; settings were reread and confirmed')
-          : text('保存未生效；已重新读取当前设置', 'Save did not take effect; current settings were reread');
-        settingsStatus.dataset.state = confirmed ? 'ok' : 'error';
+        const confirmed = await readFilterSettings({ url: './api/settings' });
+        if (revision === settingsRevision) {
+          settings = confirmed;
+          dateToggle.checked = confirmed.sessionDate;
+          titleToggle.checked = confirmed.topicTitle;
+          const saveApplied = confirmed[key] === enabled;
+          settingsStatus.textContent = saveApplied
+            ? text('保存响应未确认；已重新读取并确认设置', 'Save response was lost; settings were reread and confirmed')
+            : text('保存未生效；已重新读取当前设置', 'Save did not take effect; current settings were reread');
+          settingsStatus.dataset.state = saveApplied ? 'ok' : 'error';
+        }
       } catch {
-        settings = previous;
-        settingsStatus.textContent = text('保存结果未确认，请重新读取设置', 'Save outcome is unconfirmed; reload settings to verify');
-        settingsStatus.dataset.state = 'unavailable';
+        if (revision === settingsRevision) {
+          settings = previous;
+          settingsStatus.textContent = text('保存结果未确认，请重新读取设置', 'Save outcome is unconfirmed; reload settings to verify');
+          settingsStatus.dataset.state = 'unavailable';
+        }
       }
     } finally {
-      dateToggle.disabled = false;
-      titleToggle.disabled = false;
+      if (revision === settingsRevision) {
+        settingsSaving = false;
+        updateSettingsControls();
+        if (settingsRefreshPending) {
+          settingsRefreshPending = false;
+          void loadSettings();
+        }
+      }
     }
   };
+  fields.refresh.addEventListener('click', () => {
+    void loadSettings();
+    void poller.refresh().then((result) => { show(result); setBusy(false); });
+  });
   dateToggle.addEventListener('change', () => { void changeSetting('sessionDate', dateToggle.checked); });
   titleToggle.addEventListener('change', () => { void changeSetting('topicTitle', titleToggle.checked); });
+  updateSettingsControls();
   void loadSettings();
   document.addEventListener('visibilitychange', () => poller.setVisible(document.visibilityState === 'visible' && bridge.visible));
   void bridge.ready.then(() => {
