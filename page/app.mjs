@@ -1,5 +1,6 @@
 import { createPageBridge } from './page-bridge.mjs';
 import { createStatsPoller, readFilterSettings, saveFilterSettings, setServiceToken } from './stats-ui.mjs';
+import { initializeDebugLogPreview } from './debug-log-preview.mjs';
 
 const pageRoot = document.documentElement;
 const fields = Object.fromEntries(['status', 'total', 'processed', 'matched', 'unmatched', 'started', 'lastMatched', 'updated', 'stale', 'refresh', 'dateLines', 'dateHits', 'titleLines', 'titleHits', 'agentHits', 'agentBlocks', 'timeBlocks', 'sessionDateEnabled', 'topicTitleEnabled', 'availableAgentsEnabled', 'settingsStatus'].map((key) => [key, document.getElementById(key)]));
@@ -110,6 +111,7 @@ if (!validBootstrap) {
 } else {
   setServiceToken(bootstrap.token);
   const refreshDebug = initializeDebugControls(bootstrap.token);
+  initializeDebugLogPreview({ token: bootstrap.token, isChinese: () => copy });
   pageRoot.dataset.theme = bootstrap.theme;
   pageRoot.lang = copy ? 'zh-CN' : 'en';
   function formatTime(value, field) {

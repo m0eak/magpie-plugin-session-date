@@ -27,6 +27,13 @@
       <label><input id="debugEnabled" type="checkbox" role="switch" disabled> <span>记录脱敏后的过滤变更 / Record redacted filter changes</span></label>
       <p id="debugStatus" role="status" aria-live="polite">正在读取调试状态…</p>
       <p id="debugDirectory" class="note"></p>
+      <div class="debug-log-toolbar">
+        <label class="debug-log-all"><input id="debugLogAll" type="checkbox"> <span>显示全部（含无变更和异常） / Show all (including unchanged and errors)</span></label>
+        <button id="debugLogRefresh" type="button">刷新日志 / Refresh logs</button>
+      </div>
+      <p id="debugLogStatus" class="note" role="status" aria-live="polite">正在读取已保存日志… / Loading saved logs…</p>
+      <div id="debugLogList" class="debug-log-list"></div>
+      <p class="note">仅预览已落盘的脱敏片段；新日志写入后可能稍有延迟。关闭记录开关后，保留期内的旧记录仍可查看。 / Only saved, redacted snippets are shown; new logs may take a moment to appear. Existing records remain visible during retention after logging is turned off.</p>
     </section>
     <section class="metrics" aria-label="分类统计">
       <div class="metric"><span>日期移除行数 / Date lines removed</span><strong id="dateLines">—</strong></div>

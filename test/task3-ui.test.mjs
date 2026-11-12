@@ -98,7 +98,7 @@ test('service serves fixed assets and read-only authenticated API with proxy CSP
   const service = createService({ store: { snapshot: () => good }, port: 0, token: 'a'.repeat(64) });
   try {
     const root = service.server.url;
-    for (const [path, type] of [['/', 'text/html'], ['/app.mjs', 'text/javascript'], ['/boot.js', 'text/javascript'], ['/page-bridge.mjs', 'text/javascript'], ['/stats-ui.mjs', 'text/javascript'], ['/style.css', 'text/css']]) {
+    for (const [path, type] of [['/', 'text/html'], ['/app.mjs', 'text/javascript'], ['/debug-log-preview.mjs', 'text/javascript'], ['/boot.js', 'text/javascript'], ['/page-bridge.mjs', 'text/javascript'], ['/stats-ui.mjs', 'text/javascript'], ['/style.css', 'text/css']]) {
       const response = await fetch(new URL(path, root));
       assert.equal(response.status, 200);
       assert.match(response.headers.get('content-type'), new RegExp(type));

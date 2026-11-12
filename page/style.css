@@ -183,3 +183,65 @@ dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
   .settings input[type="checkbox"]:checked::before { background: HighlightText; }
   .settings input[type="checkbox"]:focus-visible { outline-color: Highlight; }
 }
+
+.debug-log-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+.debug-log-toolbar button {
+  min-height: 32px;
+  padding: 5px 11px;
+  border: 1px solid var(--magpie-line, color-mix(in srgb, CanvasText 18%, transparent));
+  border-radius: 7px;
+  color: inherit;
+  background: var(--magpie-bg, Canvas);
+  font: inherit;
+  cursor: pointer;
+}
+.debug-log-toolbar button:disabled { opacity: .55; cursor: wait; }
+.debug-log-all { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
+.debug-log-list { display: grid; gap: 8px; margin-top: 10px; }
+.debug-log-record, .debug-log-edit {
+  min-width: 0;
+  border: 1px solid var(--magpie-line, color-mix(in srgb, CanvasText 13%, transparent));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--magpie-bg, Canvas) 96%, CanvasText);
+}
+.debug-log-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 8px 11px;
+  cursor: pointer;
+  flex-wrap: wrap;
+}
+.debug-log-time { color: var(--muted); font-size: 12px; }
+.debug-log-protocol, .debug-log-result { font-size: 12px; }
+.debug-log-result { margin-left: auto; color: var(--accent, #5875d6); }
+.debug-log-edits { display: grid; gap: 8px; padding: 0 10px 10px; }
+.debug-log-edit { padding: 10px; background: transparent; }
+.debug-log-path { margin: 0 0 9px; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.debug-log-before-after { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.debug-log-side { min-width: 0; }
+.debug-log-side h5 { margin: 0 0 5px; color: var(--muted); font-size: 11px; font-weight: 500; }
+.debug-log-side pre {
+  max-height: 220px;
+  margin: 0;
+  padding: 9px;
+  overflow: auto;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--magpie-line, #888) 10%, var(--magpie-bg, Canvas));
+  color: inherit;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.debug-log-edit .note { margin-top: 6px; }
+@media (max-width: 600px) {
+  .debug-log-before-after { grid-template-columns: minmax(0, 1fr); }
+}

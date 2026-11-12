@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DebugConfigStore } from '../src/debug-config.mjs';
@@ -23,6 +23,26 @@ const call = (method, body, authorization = `Bearer ${token}`) => fetch(new URL(
   headers: { authorization, ...(body ? { 'content-type': 'application/json' } : {}) },
   ...(body ? { body: JSON.stringify(body) } : {}),
 });
+await mkdir(writer.directory, { recursive: true });
+await writeFile(join(writer.directory, 'session-date-filter-preview.jsonl'), `${JSON.stringify({
+  schemaVersion: 1, kind: 'request', protocol: 'chat', timestamp: '2026-11-12T00:00:00.000Z',
+  outcome: 'changed', secretField: 'synthetic-only',
+  edits: [{ kind: 'available_agents', action: 'replace', stage: 'agent_context', range: { start: 1, end: 2, unit: 'utf16' }, before: 'token=' + 'synthetic_secret_preview_123', after: 'safe text' }],
+})}\n`);
+const previewUrl = new URL('/api/debug/logs', service.server.url);
+const unauthPreview = await fetch(previewUrl);
+assert.equal(unauthPreview.status, 401);
+assert.match(unauthPreview.headers.get('cache-control') || '', /no-store/);
+const preview = await fetch(previewUrl, { headers: { authorization: `Bearer ${token}`, origin: 'null' } });
+assert.equal(preview.status, 200);
+assert.equal(preview.headers.get('access-control-allow-origin'), 'null');
+assert.match(preview.headers.get('cache-control') || '', /no-store/);
+const previewPayload = await preview.json();
+assert.equal(previewPayload.records.length, 1);
+assert.equal(JSON.stringify(previewPayload).includes('secretField'), false);
+assert.equal(JSON.stringify(previewPayload).includes('synthetic-secret-preview-123'), false);
+assert.equal((await fetch(new URL('/api/debug/logs?search=x', service.server.url), { headers: { authorization: `Bearer ${token}` } })).status, 404);
+assert.equal((await fetch(previewUrl, { headers: { authorization: `Bearer ${token}`, origin: 'https://outside.invalid' } })).status, 403);
 try {
   const unauthenticated = await call('GET', undefined, 'Bearer invalid');
   assert.equal(unauthenticated.status, 401);

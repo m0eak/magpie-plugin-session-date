@@ -1,9 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { readDebugLogs } from './debug-log-reader.mjs';
 
 const ASSETS = new Map([
   ['/app.mjs', ['../page/app.mjs', 'text/javascript; charset=utf-8']],
+  ['/debug-log-preview.mjs', ['../page/debug-log-preview.mjs', 'text/javascript; charset=utf-8']],
   ['/boot.js', ['../page/boot.js', 'text/javascript; charset=utf-8']],
   ['/page-bridge.mjs', ['../src/page-bridge.mjs', 'text/javascript; charset=utf-8']],
   ['/stats-ui.mjs', ['../src/stats-ui.mjs', 'text/javascript; charset=utf-8']],
@@ -66,7 +68,7 @@ export function createService({ store, configStore, debugConfigStore, debugWrite
     const origin = request.headers.get('origin');
     if (requestHost !== host) return jsonResponse({ error: 'Forbidden' }, 403);
     if (origin != null && origin !== 'null' && origin !== `http://${host}`) return jsonResponse({ error: 'Forbidden' }, 403);
-    const isApi = url.pathname === '/api/stats' || url.pathname === '/api/settings' || url.pathname === '/api/debug' || url.pathname === '/health';
+    const isApi = url.pathname === '/api/stats' || url.pathname === '/api/settings' || url.pathname === '/api/debug' || url.pathname === '/api/debug/logs' || url.pathname === '/health';
     const isRoot = url.pathname === '/';
     const isAsset = ASSETS.has(url.pathname);
     if (!isApi && !isRoot && !isAsset) return jsonResponse({ error: 'Not found' }, 404);
@@ -155,6 +157,13 @@ export function createService({ store, configStore, debugConfigStore, debugWrite
       } catch {
         return jsonResponse({ error: 'debug-config-save-failed', settings: null, status: DEBUG_EMPTY_STATUS }, 503, cors);
       }
+    }
+    if (url.pathname === '/api/debug/logs') {
+      const logHeaders = { ...cors, 'cache-control': 'no-store, max-age=0' };
+      if (!token || request.headers.get('authorization') !== `Bearer ${token}`) return jsonResponse({ error: 'Unauthorized' }, 401, logHeaders);
+      if (request.method !== 'GET') return jsonResponse({ error: 'Method not allowed' }, 405, logHeaders);
+      const payload = await readDebugLogs(debugWriter?.directory);
+      return jsonResponse(payload, 200, logHeaders);
     }
     if (isApi && request.method !== 'GET') return jsonResponse({ error: 'Method not allowed' }, 405, cors);
     if (url.pathname === '/api/stats') {

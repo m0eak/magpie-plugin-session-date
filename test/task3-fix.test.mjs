@@ -67,6 +67,7 @@ async function loadActualPageApp(service, { bootstrapOverride, onFetch, fetchOve
   // only the two ES import declarations are adapted for this no-browser harness.
   let appSource = appSourceOverride ?? await (await fetch(new URL('/app.mjs', service.server.url), { headers: { Origin: 'null' } })).text();
   appSource = appSource.replace(/^import \{ createPageBridge \} from '\.\/page-bridge\.mjs';\s*$/m, 'const createPageBridge = (options) => __deps.createPageBridge(options);');
+  appSource = appSource.replace(/^import \{ initializeDebugLogPreview \} from '\.\/debug-log-preview\.mjs';\s*$/m, 'const initializeDebugLogPreview = () => () => {};');
   appSource = appSource.replace(/^import \{ createStatsPoller, readFilterSettings, saveFilterSettings, setServiceToken \} from '\.\/stats-ui\.mjs';\s*$/m, 'const createStatsPoller = (options) => __deps.createStatsPoller(options); const readFilterSettings = (...args) => __deps.readFilterSettings(...args); const saveFilterSettings = (...args) => __deps.saveFilterSettings(...args); const setServiceToken = __deps.setServiceToken;');
   assert.doesNotMatch(appSource, /^import /m, 'only the production entry imports should require adaptation in this harness');
   vm.runInContext(bootstrapCode, context);
