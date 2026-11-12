@@ -152,7 +152,7 @@ function replaceRanges(text, ranges) {
   return out + text.slice(cursor);
 }
 
-function replaceAgentContext(text, context) {
+function replaceAgentContext(text, context, edits) {
   if (!context) return { text, blocks: 0 };
   const listNodes = context.root.children.filter((child) => child.name === 'available_agents');
   if (listNodes.length !== 1) return { text, blocks: 0 };
@@ -160,15 +160,31 @@ function replaceAgentContext(text, context) {
   if (!validAgentList(list)) return { text, blocks: 0 };
   const absoluteStart = context.offset + list.start;
   const absoluteEnd = context.offset + list.end;
-  const original = text.slice(absoluteStart, absoluteEnd);
-  if (original === AVAILABLE_AGENTS_GUIDANCE) return { text, blocks: 0 };
+  if (text.slice(absoluteStart, absoluteEnd) === AVAILABLE_AGENTS_GUIDANCE) return { text, blocks: 0 };
   const ranges = [{ start: absoluteStart, end: absoluteEnd, value: AVAILABLE_AGENTS_GUIDANCE }];
+  edits?.addRange({
+    kind: 'available_agents', action: 'replace', stage: 'agent_context',
+    offset: absoluteStart, source: text, start: absoluteStart, end: absoluteEnd,
+    after: AVAILABLE_AGENTS_GUIDANCE,
+  });
   const instruction = context.root.children.find((child) => child.name === 'instruction');
   if (instruction) {
     const instructionStart = context.offset + instruction.openEnd;
     const instructionEnd = context.offset + instruction.end - '</instruction>'.length;
-    let value = text.slice(instructionStart, instructionEnd);
-    value = value.replace(OLD_AGENT_INSTRUCTION, NEW_AGENT_INSTRUCTION).replace(OLD_CONTEXT_INSTRUCTION, NEW_CONTEXT_INSTRUCTION);
+    const originalValue = text.slice(instructionStart, instructionEnd);
+    let value = originalValue;
+    const replaceKnown = (source, oldText, newText) => {
+      const found = originalValue.indexOf(oldText);
+      if (found !== -1) {
+        edits?.addRange({
+          kind: 'agent_instruction', action: 'replace', stage: 'agent_context',
+          offset: instructionStart + found, source: originalValue, start: found, end: found + oldText.length, after: newText,
+        });
+      }
+      return source.replace(oldText, newText);
+    };
+    value = replaceKnown(value, OLD_AGENT_INSTRUCTION, NEW_AGENT_INSTRUCTION);
+    value = replaceKnown(value, OLD_CONTEXT_INSTRUCTION, NEW_CONTEXT_INSTRUCTION);
     if (value !== text.slice(instructionStart, instructionEnd)) ranges.push({ start: instructionStart, end: instructionEnd, value });
   }
   return { text: replaceRanges(text, ranges), blocks: 1 };
@@ -194,9 +210,39 @@ export function transformPromptText(text, options = {}, context = {}) {
   const environmentUser = context.environmentUser === true;
   let output = text;
   let availableAgentsReplacedBlocks = 0;
+  const editCollector = options.__debugEnabled === true
+    ? {
+      values: [],
+      omitted: 0,
+      failed: false,
+      addRange(edit) {
+        try {
+          if (this.values.length >= 16) { this.omitted += 1; return; }
+          const rawBeforeBytes = Buffer.byteLength(edit.source.slice(edit.start, edit.end), 'utf8');
+          const before = rawBeforeBytes > 64 * 1024 ? null : edit.source.slice(edit.start, edit.end);
+          this.values.push({
+            kind: edit.kind, action: edit.action, stage: edit.stage,
+            offset: edit.offset,
+            range: { start: edit.offset, end: edit.offset + edit.end - edit.start, unit: 'utf16', basis: 'stage-input' },
+            before, after: edit.after,
+            beforeBytes: rawBeforeBytes,
+            beforeOmitted: rawBeforeBytes > 64 * 1024,
+            ...(edit.insertedTimeGuidance === true ? { insertedTimeGuidance: true } : {}),
+          });
+        } catch {
+          const firstFailure = !this.failed;
+          this.failed = true;
+          this.omitted += 1;
+          if (firstFailure) {
+            try { options.__onEditCollectionError?.(); } catch { /* Diagnostics never affect filtering. */ }
+          }
+        }
+      },
+    }
+    : null;
   if (options.availableAgents) {
     const agentContext = getAgentContext(output, environmentUser);
-    const replaced = replaceAgentContext(output, agentContext);
+    const replaced = replaceAgentContext(output, agentContext, editCollector);
     output = replaced.text;
     availableAgentsReplacedBlocks = replaced.blocks;
   }
@@ -209,6 +255,7 @@ export function transformPromptText(text, options = {}, context = {}) {
     sessionDate: options.sessionDate !== false && !environmentUser,
     topicTitle: options.topicTitle !== false && !environmentUser,
     dateReplacement,
+    recordEdit: editCollector ? (edit) => editCollector.addRange(edit) : undefined,
     withCategories: true,
   });
   output = filtered.text;
@@ -224,5 +271,10 @@ export function transformPromptText(text, options = {}, context = {}) {
     topicTitleRemovedLines,
     availableAgentsReplacedBlocks,
     timeGuidanceInsertedBlocks,
+    ...(editCollector ? {
+      edits: editCollector.values,
+      omittedEdits: editCollector.omitted,
+      editCollectionFailed: editCollector.failed,
+    } : {}),
   };
 }

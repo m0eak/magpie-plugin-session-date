@@ -10,6 +10,93 @@ const validBootstrap = bootstrap && typeof bootstrap === 'object' && !Array.isAr
   && typeof bootstrap.lang === 'string' && bootstrap.lang.length > 0 && bootstrap.lang.length <= 24;
 let copy = validBootstrap && bootstrap.lang.toLowerCase().startsWith('zh');
 let poller;
+function initializeDebugControls(token) {
+  const toggle = document.getElementById('debugEnabled');
+  const status = document.getElementById('debugStatus');
+  const directory = document.getElementById('debugDirectory');
+  if (!toggle || !status) return null;
+  const validStatus = (value) => value && typeof value === 'object'
+    && ['disabled', 'ready', 'degraded', 'config_unavailable'].includes(value.state)
+    && (value.directory === null || typeof value.directory === 'string')
+    && ['queuedRequests', 'writtenRequests', 'droppedRequests'].every((key) => Number.isSafeInteger(value[key]) && value[key] >= 0)
+    && (value.lastWriteAt === null || typeof value.lastWriteAt === 'string')
+    && (value.lastErrorCode === null || typeof value.lastErrorCode === 'string');
+  let saving = false;
+  let revision = 0;
+  let activeRefresh = null;
+  const refresh = async () => {
+    if (saving) return;
+    if (activeRefresh) return activeRefresh;
+    const requestRevision = ++revision;
+    activeRefresh = (async () => {
+      try {
+        const response = await fetch('./api/debug', { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+        const value = await response.json();
+        if (!value || !validStatus(value.status)) throw new Error('invalid-response');
+        if (!response.ok) {
+          if (response.status === 503 && value.status.state === 'config_unavailable' && value.settings === null) {
+            if (saving || requestRevision !== revision) return;
+            toggle.disabled = false;
+            status.textContent = `${text('调试配置不可用；过滤功能仍独立运行', 'Debug configuration unavailable; filtering remains independent')} · ${text('丢弃', 'Dropped')} ${value.status.droppedRequests}${value.status.lastErrorCode ? ` · ${text('错误码', 'Code')} ${value.status.lastErrorCode}` : ''}`;
+            status.dataset.state = 'config_unavailable';
+            if (directory) directory.textContent = value.status.directory ?? '';
+            return;
+          }
+          throw new Error('unavailable');
+        }
+        if (typeof value.settings?.enabled !== 'boolean') throw new Error('invalid-response');
+        if (saving || requestRevision !== revision) return;
+        toggle.checked = value.settings.enabled;
+        toggle.disabled = false;
+        const stateText = value.status.state === 'disabled' ? text('调试日志已关闭', 'Debug logging disabled')
+          : value.status.state === 'ready' ? text('调试日志已就绪', 'Debug logging ready')
+            : text('调试日志写入异常；过滤功能仍独立运行', 'Debug logging degraded; filtering remains independent');
+        status.textContent = `${stateText} · ${text('已写入', 'Written')} ${value.status.writtenRequests} · ${text('丢弃', 'Dropped')} ${value.status.droppedRequests}${value.status.lastErrorCode ? ` · ${text('错误码', 'Code')} ${value.status.lastErrorCode}` : ''}`;
+        status.dataset.state = value.status.state;
+        if (directory) directory.textContent = value.status.directory ?? '';
+      } catch {
+        if (saving || requestRevision !== revision) return;
+        status.textContent = text('调试状态不可用；过滤功能仍独立运行', 'Debug status unavailable; filtering remains independent');
+        status.dataset.state = 'error';
+      }
+    })();
+    try { await activeRefresh; } finally { activeRefresh = null; }
+  };
+  toggle.addEventListener('change', async () => {
+    if (saving) return;
+    const target = toggle.checked;
+    const previous = !target;
+    saving = true;
+    revision += 1;
+    toggle.disabled = true;
+    status.textContent = text('正在保存…', 'Saving…');
+    let saved = false;
+    try {
+      const response = await fetch('./api/debug', {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: target }),
+      });
+      if (!response.ok) throw new Error('save-failed');
+      const value = await response.json();
+      if (value?.settings?.enabled !== target || !validStatus(value.status)) throw new Error('invalid-response');
+      saved = true;
+    } catch {
+      toggle.checked = previous;
+      status.textContent = text('调试设置保存失败；请重试', 'Could not save debug setting; retry');
+      status.dataset.state = 'error';
+    } finally {
+      saving = false;
+      toggle.disabled = false;
+    }
+    if (saved) {
+      if (activeRefresh) await activeRefresh;
+      await refresh();
+    }
+  });
+  void refresh();
+  return refresh;
+}
 const text = (zh, en) => copy ? zh : en;
 function setBusy(busy) {
   fields.refresh.disabled = busy;
@@ -22,6 +109,7 @@ if (!validBootstrap) {
   fields.refresh.disabled = true;
 } else {
   setServiceToken(bootstrap.token);
+  const refreshDebug = initializeDebugControls(bootstrap.token);
   pageRoot.dataset.theme = bootstrap.theme;
   pageRoot.lang = copy ? 'zh-CN' : 'en';
   function formatTime(value, field) {
@@ -31,6 +119,7 @@ if (!validBootstrap) {
     return new Intl.DateTimeFormat(copy ? 'zh-CN' : 'en', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
   }
   function show(result) {
+    void refreshDebug?.();
     const snapshot = result.snapshot;
     fields.status.textContent = result.kind === 'ok' ? text('统计正常', 'Statistics available') : result.kind === 'degraded' ? text('存储降级', 'Storage degraded') : result.kind === 'stale' ? text('服务不可用 · 显示旧数据', 'Service unavailable · showing stale data') : result.kind === 'unavailable' ? text('统计服务不可用', 'Statistics service unavailable') : result.kind === 'paused' ? text('页面不可见 · 已暂停刷新', 'Page hidden · refresh paused') : text('正在刷新…', 'Refreshing…');
     fields.status.dataset.state = result.kind;

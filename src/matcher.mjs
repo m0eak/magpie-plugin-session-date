@@ -85,6 +85,16 @@ function stripPromptMetadata(text, options = {}) {
     const isCurrentDate = !isTitle && isPromptMetadataLine(line);
     if (!protectedLines.has(lineStart) && ((isTitle && options.topicTitle !== false) || (isCurrentDate && options.sessionDate !== false))) {
       removedLines += 1;
+      const guidanceInserted = Boolean(!isTitle && options.dateReplacement && !options.replacementState?.inserted);
+      options.recordEdit?.({
+        kind: isTitle ? 'topic_title' : 'current_date',
+        action: guidanceInserted ? 'replace' : 'delete',
+        stage: 'prompt_metadata',
+        offset: lineStart,
+        source: text, start: lineStart, end: next,
+        after: guidanceInserted ? `${options.dateReplacement}${next > lineEnd ? text.slice(lineEnd, next) : ''}` : '',
+        insertedTimeGuidance: guidanceInserted,
+      });
       if (isTitle) topicTitleRemovedLines += 1;
       else {
         dateRemovedLines += 1;
@@ -115,6 +125,16 @@ function stripSessionBlock(text, start, end, protectedLines, options = {}) {
     const insideTarget = lineStart >= start && lineEnd <= end;
     if (options.sessionDate !== false && insideTarget && !protectedLines.has(lineStart) && isValidCalendarLine(line)) {
       removedLines += 1;
+      const guidanceInserted = Boolean(options.dateReplacement && !options.replacementState?.inserted);
+      options.recordEdit?.({
+        kind: 'tool_session_date',
+        action: guidanceInserted ? 'replace' : 'delete',
+        stage: 'session_dates',
+        offset: lineStart,
+        source: text, start: lineStart, end: next,
+        after: guidanceInserted ? `${options.dateReplacement}${next > lineEnd ? text.slice(lineEnd, next) : ''}` : '',
+        insertedTimeGuidance: guidanceInserted,
+      });
       output += text.slice(cursor, lineStart);
       if (options.dateReplacement && !options.replacementState?.inserted) {
         output += options.dateReplacement;
@@ -259,6 +279,7 @@ export function stripSessionDates(text, options = {}) {
     topicTitle: options.topicTitle !== false,
     dateReplacement: options.dateReplacement,
     replacementState: { inserted: false },
+    recordEdit: options.recordEdit,
   };
   const protectedLines = protectedMarkdownLines(text);
   const scan = scanTopLevelTools(text);

@@ -2,13 +2,15 @@
 
 > **本插件尚未发布或部署。** 2026 年 11 月 8 日的宿主验收记录见 [`docs/acceptance.md`](docs/acceptance.md)，该记录适用于当时注明的代码快照；本文所述独立开关、分类统计和并发设置同步属于后续变更，已通过文档所列本地测试，但尚未在宿主中验收。
 
-此独立插件在 magpie 的公开异步请求 hook 中，对已识别的 system/developer 提示词执行确定性变换：移除完整单行的 Topic Title 表格行和 `Current date: YYYY-MM-DD` 行（含已知括号时区后缀），并在 LobeHub Memory / Credentials 的结构 wrapper 内继续移除完整英文 `Session date: Weekday, Month D, YYYY` 行；移除日期后在同一文本区域加入固定的时间查询提示，不回填当前日期。可选的助手列表开关只替换已识别完整名单块；四种协议中还会检查会话开头的首条合格环境 user 消息。该消息可由宿主已知的顶层环境块组成，包括 `<user_memory>`、`<expertise>`、`<group_context>`、`<discord_context>`、`<plan>`、`<agent_knowledge>`、`<agent_documents_index>`、`<agent_document>`、`<available_tools>`、`<current_agent_context>`、`<agent_management_context>`、`<current_group_context>` 和 `<onboarding_context>`；只在其中完整顶层的 `agent_management_context` 结构符合宿主模板时替换名单，并保留其他环境块及其周边文字。user 路径只处理名单，不处理日期或标题。它不扫描后续用户对话、assistant/tool 历史、未知字段、图片或非文本块，不做协议转换；不保存请求正文、Key、模型、会话、provider、agent 或逐请求明细。合法未知扩展或部分多模态历史不会阻断对已识别 system/developer 文本的安全过滤；未知且无命中的无关payload不计量。合法Gemini已知媒体/code part可能增加unmatched统计口径，相关验收边界见 [`docs/acceptance.md`](docs/acceptance.md)。文本无法证明一个结构完全仿造了宿主环境模板，因此对同形的伪造 XML 不承诺绝无误匹配。
+此独立插件在 magpie 的公开异步请求 hook 中，对已识别的 system/developer 提示词执行确定性变换：移除完整单行的 Topic Title 表格行和 `Current date: YYYY-MM-DD` 行（含已知括号时区后缀），并在 LobeHub Memory / Credentials 的结构 wrapper 内继续移除完整英文 `Session date: Weekday, Month D, YYYY` 行；移除日期后在同一文本区域加入固定的时间查询提示，不回填当前日期。可选的助手列表开关只替换已识别完整名单块；四种协议中还会检查会话开头的首条合格环境 user 消息。该消息可由宿主已知的顶层环境块组成，包括 `<user_memory>`、`<expertise>`、`<group_context>`、`<discord_context>`、`<plan>`、`<agent_knowledge>`、`<agent_documents_index>`、`<agent_document>`、`<available_tools>`、`<current_agent_context>`、`<agent_management_context>`、`<current_group_context>` 和 `<onboarding_context>`；只在其中完整顶层的 `agent_management_context` 结构符合宿主模板时替换名单，并保留其他环境块及其周边文字。user 路径只处理名单，不处理日期或标题。它不扫描后续用户对话、assistant/tool 历史、未知字段、图片或非文本块，不做协议转换；debug 默认关闭时不保存请求片段、模型、会话、provider、agent 或 headers。用户主动开启 debug 后，只记录实际变换附近的有界、脱敏片段及无命中摘要；不记录整份 prompt 或宿主身份字段。合法未知扩展或部分多模态历史不会阻断对已识别 system/developer 文本的安全过滤；未知且无命中的无关payload不计量。合法Gemini已知媒体/code part可能增加unmatched统计口径，相关验收边界见 [`docs/acceptance.md`](docs/acceptance.md)。文本无法证明一个结构完全仿造了宿主环境模板，因此对同形的伪造 XML 不承诺绝无误匹配。
 
 ## 插件页面
 
 sidebar 页面“会话日期清理 / Session Date Filter”提供三个独立开关：日期开关同时控制 `Current date` 与 wrapper 内 `Session date`，标题开关控制 Topic Title 行，助手开关控制 `available_agents` 列表块替换（默认关闭）。页面同时显示日期/标题删除行、助手列表命中请求与替换块、固定时间提示插入块，以及服务/存储状态；没有reset、日统计、图表或请求内容查看。 旧版两键设置读取时将助手开关视为关闭且不改写文件；所有宿主进程应统一升级后再启用第三项。回滚旧版前需关闭助手开关并恢复两键设置格式，因为旧二进制会拒绝三键配置。
 
 开关保存在插件数据目录的 `filter-config.json`，写入先安全创建目录，再用同目录临时文件原子替换；同一数据目录的其他host每约500ms轮询发现配置变化，因此跨host传播不是即时的。每个请求只读取一次冻结的完整设置快照，并用该快照处理该请求所有支持的文本块。页面以认证 `PATCH` 提交明确变更字段，服务在锁内合并磁盘最新状态；`PUT` 保留为显式全量替换。锁使用异步等待，不阻塞host事件循环，并记录PID与唯一owner token：owner进程仍存活时不会因等待超时被回收；回收进程死亡锁时另用原子guard串行化二次核验与删除。guard损坏或无法确认时会安全等待并报超时，不会冒险删除锁。原子替换或锁写入失败时，本实例内存状态不先行改变；设置读取失败时过滤fail-open、设置API报告不可用，不会静默恢复默认值。设置变更会影响后续prompt，供应商缓存行为不在本插件保证范围内。
+
+Debug 使用单独的 `debug-config.json` 和认证 `GET/PUT /api/debug`，不扩展三个过滤设置或统计 API schema。启用时 JSONL 写入 `<插件数据目录>/debug/`，每条仅含编辑附近的脱敏片段或无命中摘要；记录、队列、单文件、总目录与保留时间均有界。关闭时清空尚未落盘队列；配置或写入故障只影响 debug 状态，不改变过滤。此版本经过本地 Node/Bun 合成数据验证；尚未在真实宿主 UI 环境验收。
 
 统计表示**提示词变换次数，不代表模型缓存命中率**。移除动态元数据行可能弱化 Memory 在消息缺少时间戳时的相对时间 fallback。源码修复不代表当前运行实例已经部署；版本切换也不保证供应商继续沿用旧 prompt 缓存。其他动态提示词、路由与缓存 TTL 仍影响效果，插件不保证节省 token 或命中缓存。
 

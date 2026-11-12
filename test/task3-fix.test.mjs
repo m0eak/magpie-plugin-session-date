@@ -1,12 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import { resolve, dirname } from 'node:path';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { createPageBridge } from '../src/page-bridge.mjs';
 import { createStatsPoller, readFilterSettings, saveFilterSettings, setServiceToken as setPollerToken } from '../src/stats-ui.mjs';
 import { createService } from '../src/service-api.mjs';
+import { DebugConfigStore } from '../src/debug-config.mjs';
+import { DebugWriter } from '../src/debug-writer.mjs';
 import { HOST_BRIDGE_ROUTE, HOST_MESSAGE_MARKER, HOST_THEME_PREFIX } from './fixtures/host-contract.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -22,9 +25,9 @@ async function waitUntil(predicate, label) {
 
 function makeDocument() {
   const elements = new Map();
-  for (const id of ['status','stale','total','processed','matched','unmatched','started','lastMatched','updated','refresh','dateLines','dateHits','titleLines','titleHits','agentHits','agentBlocks','timeBlocks','sessionDateEnabled','topicTitleEnabled','availableAgentsEnabled','settingsStatus']) {
+  for (const id of ['status','stale','total','processed','matched','unmatched','started','lastMatched','updated','refresh','dateLines','dateHits','titleLines','titleHits','agentHits','agentBlocks','timeBlocks','sessionDateEnabled','topicTitleEnabled','availableAgentsEnabled','settingsStatus','debugEnabled','debugStatus','debugDirectory']) {
     const listeners = new Map();
-    elements.set(id, { id, textContent: ['total','processed','matched','unmatched'].includes(id) ? '—' : (['started','lastMatched','updated'].includes(id) ? '暂无' : ''), dataset: {}, style: { colorScheme: '', setProperty() {} }, attributes: {}, disabled: false, title: '',
+    elements.set(id, { id, textContent: ['total','processed','matched','unmatched'].includes(id) ? '—' : (['started','lastMatched','updated'].includes(id) ? '暂无' : ''), dataset: {}, style: { colorScheme: '', setProperty() {} }, attributes: {}, disabled: id === 'debugEnabled', title: '',
       addEventListener(type, fn) { listeners.set(type, fn); }, setAttribute(key, value) { this.attributes[key] = value; }, removeAttribute(key) { delete this.attributes[key]; },
       getAttribute(key) { return this.attributes[key] ?? null; }, fire(type) { listeners.get(type)?.(); } });
   }
@@ -130,6 +133,63 @@ test('actual page app reads root HTML bootstrap token and renders localized real
   } finally { await service.stop(); }
 });
 
+test('debug UI reports disabled, rolls back failed saves, recovers and refreshes cross-process state', { skip: typeof Bun === 'undefined' }, async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'session-date-debug-ui-'));
+  const config = new DebugConfigStore({ dataDir: dir, pollMs: 60_000 });
+  const writer = new DebugWriter({ directory: join(dir, 'debug'), runId: 'ui-integration' });
+  const settings = { sessionDate: true, topicTitle: true, availableAgents: false };
+  const service = createService({
+    store: { snapshot: () => good },
+    configStore: { snapshot: () => settings, replace: async (value) => value },
+    debugConfigStore: config,
+    debugWriter: writer,
+    port: 0,
+    token: HOST_TOKEN,
+  });
+  let failPut = true;
+  const ui = await loadActualPageApp(service, {
+    mockBridge: true,
+    mockStats: true,
+    fetchOverride: (url, init, liveService) => {
+      if (String(url).includes('/api/debug') && init?.method === 'PUT' && failPut) {
+        failPut = false;
+        return Promise.resolve(new Response(JSON.stringify({ error: 'synthetic-unavailable' }), { status: 503 }));
+      }
+      return fetch(new URL(url, liveService.server.url), { ...init, headers: { ...(init?.headers || {}), Origin: 'null' } });
+    },
+  });
+  try {
+    assert.equal(ui.elements.get('debugEnabled').disabled, true, 'test starts from the actual HTML disabled state');
+    await waitUntil(() => ui.elements.get('debugStatus').dataset.state === 'disabled', 'debug disabled status');
+    assert.equal(ui.elements.get('debugEnabled').checked, false);
+    assert.equal(ui.elements.get('debugEnabled').disabled, false, 'a valid GET enables the control');
+    assert.match(ui.elements.get('debugStatus').textContent, /已写入.*0.*丢弃.*0/);
+    ui.elements.get('debugEnabled').checked = true;
+    ui.elements.get('debugEnabled').fire('change');
+    await waitUntil(() => ui.elements.get('debugStatus').dataset.state === 'error', 'debug save failure');
+    assert.equal(ui.elements.get('debugEnabled').checked, false, 'failed save rolls the checkbox back');
+    assert.match(ui.elements.get('debugStatus').textContent, /保存失败/);
+    assert.equal(ui.elements.get('sessionDateEnabled').disabled, false);
+    assert.equal(ui.elements.get('topicTitleEnabled').disabled, false);
+    assert.equal(ui.elements.get('availableAgentsEnabled').disabled, false);
+
+    ui.elements.get('debugEnabled').checked = true;
+    ui.elements.get('debugEnabled').fire('change');
+    await waitUntil(() => ui.elements.get('debugStatus').dataset.state === 'ready', 'debug enabled status');
+    const external = new DebugConfigStore({ dataDir: dir, pollMs: 60_000 });
+    try {
+      await external.replace({ enabled: false });
+      await config.refresh();
+      ui.elements.get('refresh').fire('click');
+      await waitUntil(() => ui.elements.get('debugStatus').dataset.state === 'disabled', 'cross-process debug config refresh');
+    } finally { external.close(); }
+  } finally {
+    ui.cleanup();
+    await service.stop();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('actual page entry preserves degraded counters through stale failure and recovers on refresh', { skip: typeof Bun === 'undefined' }, async () => {
   const degraded = { ...good, status: 'degraded', stats: { ...good.stats, removedLines: 5 } };
   const recovered = { ...good, stats: { ...good.stats, removedLines: 7, updatedAt: '2026-11-05T02:05:04.000Z' } };
@@ -208,7 +268,7 @@ test('a rejected bootstrap bearer token shows unavailable without rendering zero
     await new Promise((resolve) => setTimeout(resolve, 15));
     assert.equal(ui.elements.get('status').dataset.state, 'unavailable');
     assert.equal(ui.elements.get('total').textContent, '—');
-    assert.equal(calls, 2, 'the bearer token is attempted only against the authenticated stats and settings APIs');
+    assert.equal(calls, 3, 'the bearer token is attempted only against authenticated stats, settings and single-flight debug status APIs');
     ui.cleanup();
   } finally { await service.stop(); }
 });
@@ -449,5 +509,110 @@ test('actual settings UI queues refresh during save and applies the later author
   } finally {
     ui.cleanup();
     await service.stop();
+  }
+});
+
+test('debug toggle save wins over an older pending GET response', { skip: typeof Bun === 'undefined' }, async () => {
+  let resolveInitialGet;
+  let resolvePut;
+  let initialGetStarted;
+  let putStarted;
+  const initialGet = new Promise((resolve) => { resolveInitialGet = resolve; });
+  const putResponse = new Promise((resolve) => { resolvePut = resolve; });
+  const gotGet = new Promise((resolve) => { initialGetStarted = resolve; });
+  const gotPut = new Promise((resolve) => { putStarted = resolve; });
+  let serverEnabled = false;
+  const payload = (enabled) => ({
+    settings: { enabled },
+    status: { state: enabled ? 'ready' : 'disabled', directory: '/synthetic', queuedRequests: 0,
+      writtenRequests: 0, droppedRequests: 0, lastWriteAt: null, lastErrorCode: null },
+  });
+  const server = Bun.serve({
+    port: 0,
+    fetch: async (request) => new URL(request.url).pathname === '/app.mjs'
+      ? new Response(await readFile(resolve(root, 'page/app.mjs'), 'utf8'))
+      : new Response(`<script nonce="synthetic">window.__SESSION_DATE_FILTER__={"token":"${'a'.repeat(64)}","theme":"dark","lang":"zh-CN"}</script>`),
+  });
+  const service = { server };
+  const ui = await loadActualPageApp(service, {
+    mockStats: true,
+    mockBridge: true,
+    fetchOverride: (url, init) => {
+      if (!String(url).includes('/api/debug')) return Promise.resolve({ ok: true, json: async () => good });
+      if (init?.method === 'PUT') {
+        putStarted();
+        return putResponse.then((response) => {
+          if (response.ok) serverEnabled = JSON.parse(init.body).enabled;
+          return response;
+        });
+      }
+      if (!gotGet.isResolved) {
+        gotGet.isResolved = true;
+        initialGetStarted();
+        return initialGet;
+      }
+      return Promise.resolve(new Response(JSON.stringify(payload(serverEnabled)), { status: 200 }));
+    },
+  });
+  try {
+    await gotGet;
+    const toggle = ui.elements.get('debugEnabled');
+    toggle.checked = true;
+    toggle.fire('change');
+    await gotPut;
+    assert.equal(toggle.disabled, true, 'toggle is locked while the target value is being saved');
+    resolveInitialGet(new Response(JSON.stringify(payload(false)), { status: 200 }));
+    resolvePut(new Response(JSON.stringify(payload(true)), { status: 200 }));
+    await waitUntil(() => ui.elements.get('debugStatus').dataset.state === 'ready' && toggle.checked, 'saved setting refresh');
+    assert.equal(serverEnabled, true);
+    assert.equal(toggle.checked, true);
+    assert.equal(toggle.disabled, false);
+  } finally {
+    ui.cleanup();
+    server.stop();
+  }
+});
+
+test('debug control unlocks valid config repair state and shows fixed diagnostics', { skip: typeof Bun === 'undefined' }, async () => {
+  const server = Bun.serve({
+    port: 0,
+    fetch: async (request) => new URL(request.url).pathname === '/app.mjs'
+      ? new Response(await readFile(resolve(root, 'page/app.mjs'), 'utf8'))
+      : new Response(`<script nonce="synthetic">window.__SESSION_DATE_FILTER__={"token":"${'a'.repeat(64)}","theme":"dark","lang":"zh-CN"}</script>`),
+  });
+  const service = { server };
+  let enabled = false;
+  const status = (state, lastErrorCode) => ({ state, directory: '/synthetic/debug', queuedRequests: 0,
+    writtenRequests: 3, droppedRequests: 2, lastWriteAt: null, lastErrorCode });
+  const response = (code = null) => new Response(JSON.stringify({
+    settings: enabled ? { enabled: true } : null,
+    status: status(enabled ? 'ready' : 'config_unavailable', code),
+  }), { status: enabled ? 200 : 503 });
+  const ui = await loadActualPageApp(service, {
+    mockBridge: true,
+    mockStats: true,
+    fetchOverride: async (url, init) => {
+      if (!String(url).includes('/api/debug')) return new Response(JSON.stringify(good));
+      if (init?.method === 'PUT') {
+        assert.equal(ui.elements.get('debugEnabled').disabled, true, 'control stays disabled while repairing config');
+        enabled = JSON.parse(init.body).enabled;
+        return response();
+      }
+      return response(enabled ? null : 'debug-config-unavailable');
+    },
+  });
+  try {
+    const toggle = ui.elements.get('debugEnabled');
+    await waitUntil(() => ui.elements.get('debugStatus').dataset.state === 'config_unavailable', 'config unavailable status');
+    assert.equal(toggle.disabled, false, 'valid config-unavailable response allows repair');
+    assert.match(ui.elements.get('debugStatus').textContent, /丢弃 2.*错误码 debug-config-unavailable/);
+    toggle.checked = true;
+    toggle.fire('change');
+    await waitUntil(() => ui.elements.get('debugStatus').dataset.state === 'ready', 'config repair save and readback');
+    assert.equal(toggle.checked, true);
+    assert.equal(toggle.disabled, false);
+  } finally {
+    ui.cleanup();
+    server.stop();
   }
 });

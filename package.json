@@ -11,8 +11,8 @@
     "index.mjs"
   ],
   "scripts": {
-    "test": "node --test test/filter-controls-node.mjs test/matcher.test.mjs test/protocols.test.mjs test/stable-context-replacements.test.mjs test/manual-review-fix.test.mjs test/prompt-metadata.test.mjs test/task3-ui.test.mjs test/task3-bridge.test.mjs test/task3-fix.test.mjs test/recovery-fix.test.mjs && bun test test/task2.test.mjs test/task3-ui.test.mjs test/task3-bridge.test.mjs test/task3-fix.test.mjs test/recovery-fix.test.mjs && bun run test/task2-integration.bun.mjs",
-    "test:node": "node --test test/filter-controls-node.mjs test/matcher.test.mjs test/protocols.test.mjs test/stable-context-replacements.test.mjs test/manual-review-fix.test.mjs test/prompt-metadata.test.mjs test/task3-ui.test.mjs test/task3-bridge.test.mjs test/task3-fix.test.mjs test/recovery-fix.test.mjs",
+    "test": "node --test test/debug.test.mjs test/filter-controls-node.mjs test/matcher.test.mjs test/protocols.test.mjs test/stable-context-replacements.test.mjs test/manual-review-fix.test.mjs test/prompt-metadata.test.mjs test/task3-ui.test.mjs test/task3-bridge.test.mjs test/task3-fix.test.mjs test/recovery-fix.test.mjs && bun test test/task2.test.mjs test/task3-ui.test.mjs test/task3-bridge.test.mjs test/task3-fix.test.mjs test/recovery-fix.test.mjs && bun run test/task2-integration.bun.mjs && bun run test/debug-api.bun.mjs",
+    "test:node": "node --test test/debug.test.mjs test/filter-controls-node.mjs test/matcher.test.mjs test/protocols.test.mjs test/stable-context-replacements.test.mjs test/manual-review-fix.test.mjs test/prompt-metadata.test.mjs test/task3-ui.test.mjs test/task3-bridge.test.mjs test/task3-fix.test.mjs test/recovery-fix.test.mjs",
     "test:task2": "bun test test/task2.test.mjs",
     "test:task2:integration": "bun run test/task2-integration.bun.mjs",
     "start:task2-test": "bun test test/task2.test.mjs"

@@ -22,6 +22,12 @@
       <label><input id="availableAgentsEnabled" type="checkbox" disabled> <span>固定助手列表 / Stabilize agent list</span></label>
       <p id="settingsStatus" role="status" aria-live="polite">正在读取设置…</p>
     </section>
+    <section class="settings" aria-label="调试日志设置">
+      <h2>调试日志 / Debug log</h2>
+      <label><input id="debugEnabled" type="checkbox" disabled> <span>记录脱敏后的过滤变更 / Record redacted filter changes</span></label>
+      <p id="debugStatus" role="status" aria-live="polite">正在读取调试状态…</p>
+      <p id="debugDirectory" class="note"></p>
+    </section>
     <section class="metrics" aria-label="分类统计">
       <div class="metric"><span>日期移除行数 / Date lines removed</span><strong id="dateLines">—</strong></div>
       <div class="metric"><span>日期命中请求 / Date matched requests</span><strong id="dateHits">—</strong></div>

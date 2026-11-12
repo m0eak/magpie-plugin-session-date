@@ -11,6 +11,29 @@ const ASSETS = new Map([
 ]);
 const EMPTY_STATS = Object.freeze({ processedRequests: 0, matchedRequests: 0, removedLines: 0, unmatchedRequests: 0, dateMatchedRequests: 0, dateRemovedLines: 0, topicTitleMatchedRequests: 0, topicTitleRemovedLines: 0, availableAgentsMatchedRequests: 0, availableAgentsReplacedBlocks: 0, timeGuidanceInsertedBlocks: 0, startedAt: null, updatedAt: null, lastMatchedAt: null });
 const NONCE = /^[a-f0-9]{64}$/i;
+const DEBUG_EMPTY_STATUS = Object.freeze({
+  state: 'config_unavailable', directory: null, queuedRequests: 0,
+  writtenRequests: 0, droppedRequests: 0, lastWriteAt: null,
+  lastErrorCode: 'debug-config-unavailable',
+});
+const DEBUG_CODES = new Set(['queue-full', 'write-failed', 'capacity-unavailable', 'lock-timeout', 'event-error', 'directory-unavailable']);
+const fixedDebugCode = (reason) => DEBUG_CODES.has(reason) ? reason : 'debug-write-failed';
+
+function getDebugStatus(debugConfigStore, debugWriter, enabled) {
+  const config = debugConfigStore?.status?.() ?? { available: false };
+  const writer = debugWriter?.status?.() ?? {};
+  const configUnavailable = config.available !== true;
+  const writerFailed = writer.state === 'degraded' || Boolean(writer.reason);
+  return {
+    state: configUnavailable ? 'config_unavailable' : writerFailed ? 'degraded' : enabled ? 'ready' : 'disabled',
+    directory: typeof writer.directory === 'string' ? writer.directory : null,
+    queuedRequests: Number.isSafeInteger(writer.queuedRequests) ? writer.queuedRequests : 0,
+    writtenRequests: Number.isSafeInteger(writer.writtenRequests) ? writer.writtenRequests : 0,
+    droppedRequests: Number.isSafeInteger(writer.droppedRequests) ? writer.droppedRequests : 0,
+    lastWriteAt: typeof writer.lastWriteAt === 'string' ? writer.lastWriteAt : null,
+    lastErrorCode: configUnavailable ? 'debug-config-unavailable' : writerFailed ? fixedDebugCode(writer.reason) : null,
+  };
+}
 
 export class ServiceListenError extends Error {
   constructor() { super('Statistics listener could not be started.'); this.name = 'ServiceListenError'; this.reasonCode = 'address-in-use'; }
@@ -30,7 +53,7 @@ function validateUiOrigin(value) {
   } catch { return null; }
 }
 
-export function createService({ store, configStore, port = 3479, token = '' } = {}) {
+export function createService({ store, configStore, debugConfigStore, debugWriter, port = 3479, token = '' } = {}) {
   if (!store || typeof store.snapshot !== 'function') throw new TypeError('A stats store is required.');
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new TypeError('Invalid service port.');
   if (token && !NONCE.test(token)) throw new TypeError('Invalid service token.');
@@ -43,7 +66,7 @@ export function createService({ store, configStore, port = 3479, token = '' } = 
     const origin = request.headers.get('origin');
     if (requestHost !== host) return jsonResponse({ error: 'Forbidden' }, 403);
     if (origin != null && origin !== 'null' && origin !== `http://${host}`) return jsonResponse({ error: 'Forbidden' }, 403);
-    const isApi = url.pathname === '/api/stats' || url.pathname === '/api/settings' || url.pathname === '/health';
+    const isApi = url.pathname === '/api/stats' || url.pathname === '/api/settings' || url.pathname === '/api/debug' || url.pathname === '/health';
     const isRoot = url.pathname === '/';
     const isAsset = ASSETS.has(url.pathname);
     if (!isApi && !isRoot && !isAsset) return jsonResponse({ error: 'Not found' }, 404);
@@ -104,6 +127,31 @@ export function createService({ store, configStore, port = 3479, token = '' } = 
       }
       catch { return jsonResponse({ error: 'Settings could not be saved.' }, 503, cors); }
     }
+    if (url.pathname === '/api/debug') {
+      if (!token || request.headers.get('authorization') !== `Bearer ${token}`) return jsonResponse({ error: 'Unauthorized' }, 401, cors);
+      if (request.method === 'GET') {
+        try {
+          const settings = debugConfigStore?.snapshot?.();
+          if (!settings || typeof settings.enabled !== 'boolean') {
+            return jsonResponse({ settings: null, status: { ...DEBUG_EMPTY_STATUS, ...getDebugStatus(debugConfigStore, debugWriter, false) }, error: 'debug-config-unavailable' }, 503, cors);
+          }
+          return jsonResponse({ settings, status: getDebugStatus(debugConfigStore, debugWriter, settings.enabled) }, 200, cors);
+        } catch {
+          return jsonResponse({ settings: null, status: DEBUG_EMPTY_STATUS, error: 'debug-config-unavailable' }, 503, cors);
+        }
+      }
+      if (request.method !== 'PUT') return jsonResponse({ error: 'Method not allowed' }, 405, cors);
+      let value;
+      try { value = await request.json(); } catch { return jsonResponse({ error: 'Invalid JSON' }, 400, cors); }
+      if (!value || Array.isArray(value) || Object.keys(value).length !== 1 || typeof value.enabled !== 'boolean') return jsonResponse({ error: 'Debug settings must contain only an enabled boolean.' }, 400, cors);
+      try {
+        const settings = await debugConfigStore.replace(value);
+        try { debugWriter?.setEnabled?.(value.enabled); } catch { /* Writer failure is reported in status and does not undo config persistence. */ }
+        return jsonResponse({ settings, status: getDebugStatus(debugConfigStore, debugWriter, value.enabled) }, 200, cors);
+      } catch {
+        return jsonResponse({ error: 'debug-config-save-failed', settings: null, status: DEBUG_EMPTY_STATUS }, 503, cors);
+      }
+    }
     if (isApi && request.method !== 'GET') return jsonResponse({ error: 'Method not allowed' }, 405, cors);
     if (url.pathname === '/api/stats') {
       if (token && request.headers.get('authorization') !== `Bearer ${token}`) return jsonResponse({ error: 'Unauthorized' }, 401, cors);
@@ -131,5 +179,14 @@ export function createService({ store, configStore, port = 3479, token = '' } = 
     throw error;
   }
   let stopped = false;
-  return { server, async stop() { if (stopped) return; stopped = true; try { server.stop(true); } catch {} } };
+  return {
+    server,
+    async stop() {
+      if (stopped) return;
+      stopped = true;
+      try { server.stop(true); } catch {}
+      try { await debugWriter?.close?.(); } catch {}
+      try { debugConfigStore?.close?.(); } catch {}
+    },
+  };
 }
