@@ -33,6 +33,17 @@ try {
   assert.deepEqual(Object.keys(initialBody.status).sort(), ['directory', 'droppedRequests', 'lastErrorCode', 'lastWriteAt', 'queuedRequests', 'state', 'writtenRequests'].sort());
   assert.equal(initialBody.status.state, 'disabled');
 
+  const preflight = await fetch(new URL('/api/debug', service.server.url), {
+    method: 'OPTIONS',
+    headers: {
+      Origin: 'null',
+      'Access-Control-Request-Method': 'PUT',
+      'Access-Control-Request-Headers': 'authorization,content-type',
+    },
+  });
+  assert.equal(preflight.status, 204);
+  assert.match(preflight.headers.get('access-control-allow-methods') || '', /(?:^|,\s*)PUT(?:,|$)/);
+
   const enabled = await call('PUT', { enabled: true });
   assert.equal(enabled.status, 200);
   const enabledBody = await enabled.json();

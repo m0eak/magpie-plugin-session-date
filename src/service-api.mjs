@@ -74,7 +74,11 @@ export function createService({ store, configStore, debugConfigStore, debugWrite
     if (isAsset && url.search) return jsonResponse({ error: 'Not found' }, 404);
     const cors = {
       'access-control-allow-origin': origin ?? `http://${host}`,
-      'access-control-allow-methods': url.pathname === '/api/settings' ? 'GET, PUT, PATCH, OPTIONS' : 'GET, OPTIONS',
+      'access-control-allow-methods': url.pathname === '/api/settings'
+        ? 'GET, PUT, PATCH, OPTIONS'
+        : url.pathname === '/api/debug'
+          ? 'GET, PUT, OPTIONS'
+          : 'GET, OPTIONS',
       'access-control-allow-headers': 'Authorization, Content-Type',
       vary: 'Origin',
     };
