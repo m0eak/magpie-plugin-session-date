@@ -17,14 +17,14 @@
     <section class="metrics" aria-label="请求统计"><div class="metric"><span>已处理请求 / Processed</span><strong id="processed">—</strong></div><div class="metric"><span>命中请求 / Matched</span><strong id="matched">—</strong></div><div class="metric"><span>未命中请求 / Unmatched</span><strong id="unmatched">—</strong></div></section>
     <section class="settings" aria-label="过滤设置">
       <h2>过滤开关 / Filters</h2>
-      <label><input id="sessionDateEnabled" type="checkbox" disabled> <span>移除日期行 / Remove date lines</span></label>
-      <label><input id="topicTitleEnabled" type="checkbox" disabled> <span>移除话题标题行 / Remove topic title line</span></label>
-      <label><input id="availableAgentsEnabled" type="checkbox" disabled> <span>固定助手列表 / Stabilize agent list</span></label>
+      <label><input id="sessionDateEnabled" type="checkbox" role="switch" disabled> <span>移除日期行 / Remove date lines</span></label>
+      <label><input id="topicTitleEnabled" type="checkbox" role="switch" disabled> <span>移除话题标题行 / Remove topic title line</span></label>
+      <label><input id="availableAgentsEnabled" type="checkbox" role="switch" disabled> <span>固定助手列表 / Stabilize agent list</span></label>
       <p id="settingsStatus" role="status" aria-live="polite">正在读取设置…</p>
     </section>
     <section class="settings" aria-label="调试日志设置">
       <h2>调试日志 / Debug log</h2>
-      <label><input id="debugEnabled" type="checkbox" disabled> <span>记录脱敏后的过滤变更 / Record redacted filter changes</span></label>
+      <label><input id="debugEnabled" type="checkbox" role="switch" disabled> <span>记录脱敏后的过滤变更 / Record redacted filter changes</span></label>
       <p id="debugStatus" role="status" aria-live="polite">正在读取调试状态…</p>
       <p id="debugDirectory" class="note"></p>
     </section>
